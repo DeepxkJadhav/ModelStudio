@@ -84,8 +84,8 @@ export const StudioStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const historyMgr = useRef(new HistoryManager()).current;
 
   const [project, setProject] = useState<StudioProject>(() => {
-    const init = DefaultModelFactory.createDefaultProject('HUMANOID');
-    historyMgr.pushSnapshot('Initial Project', 'Initialized humanoid studio model', init);
+    const init = DefaultModelFactory.createTurnaroundModelProject('/reference_sheet.jpg');
+    historyMgr.pushSnapshot('Turnaround Character', 'Initialized character model from uploaded reference sheet', init);
     return init;
   });
 
