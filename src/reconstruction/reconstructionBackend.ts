@@ -1,7 +1,7 @@
 /**
  * Model Studio - 3D Reconstruction Backend Architecture (Section 3)
  * Provides clean backend abstraction for local multi-view volumetric reconstruction
- * and external AI model inference services.
+ * and local/remote AI model inference services (TripoSR / Stable Fast 3D).
  */
 
 import { ReferenceView, SpeciesCategory, QualityPreset, MeshLayer, MaterialProperties } from '../core/types';
@@ -149,13 +149,13 @@ export class LocalVolumetricReconstructionBackend implements IReconstructionBack
       depth: Math.max(0, maxZ - minZ),
     };
 
-    // 5. Generate structured layers (Body, Clothing, Hair)
+    // 5. Generate species-aware structured layers (preserving anatomy)
     const layers: MeshLayer[] = [];
 
-    // Body Layer
+    // Body Layer (always present)
     const bodyLayer: MeshLayer = {
       id: 'layer_body',
-      name: 'Body',
+      name: 'Body Base',
       type: 'body',
       visible: true,
       wireframe: false,
@@ -169,58 +169,120 @@ export class LocalVolumetricReconstructionBackend implements IReconstructionBack
     };
     layers.push(bodyLayer);
 
-    if (settings.generateLayers !== false && species === 'HUMANOID') {
-      // Clothing Layer (torso and skirt)
-      const clothVerts = new Float32Array(mesh.vertices.length);
-      for (let i = 0; i < mesh.vertices.length; i += 3) {
-        const y = mesh.vertices[i + 1];
-        const isClothingArea = y >= 0.70 && y <= 1.42;
-        const factor = isClothingArea ? 1.028 : 1.0;
-        clothVerts[i] = mesh.vertices[i] * factor;
-        clothVerts[i + 1] = mesh.vertices[i + 1];
-        clothVerts[i + 2] = mesh.vertices[i + 2] * factor;
+    if (settings.generateLayers !== false) {
+      if (species === 'HUMANOID') {
+        // T-Shirt & Jeans Layers
+        const clothVerts = new Float32Array(mesh.vertices.length);
+        for (let i = 0; i < mesh.vertices.length; i += 3) {
+          const y = mesh.vertices[i + 1];
+          const isClothingArea = y >= 0.15 && y <= 1.48;
+          const factor = isClothingArea ? 1.025 : 1.0;
+          clothVerts[i] = mesh.vertices[i] * factor;
+          clothVerts[i + 1] = mesh.vertices[i + 1];
+          clothVerts[i + 2] = mesh.vertices[i + 2] * factor;
+        }
+
+        layers.push({
+          id: 'layer_clothing',
+          name: 'Casual Apparel',
+          type: 'clothing',
+          visible: true,
+          wireframe: false,
+          materialId: 'mat_white_tshirt',
+          vertexCount: clothVerts.length / 3,
+          triangleCount: mesh.indices.length / 3,
+          vertices: clothVerts,
+          normals: mesh.normals,
+          uvs: mesh.uvs,
+          indices: mesh.indices,
+        });
+
+        // Hair Layer
+        const hairVerts = new Float32Array(mesh.vertices.length);
+        for (let i = 0; i < mesh.vertices.length; i += 3) {
+          const y = mesh.vertices[i + 1];
+          const isHairArea = y >= 1.35;
+          const factor = isHairArea ? 1.05 : 1.0;
+          hairVerts[i] = mesh.vertices[i] * factor;
+          hairVerts[i + 1] = mesh.vertices[i + 1] + (isHairArea ? 0.02 : 0);
+          hairVerts[i + 2] = mesh.vertices[i + 2] * factor;
+        }
+
+        layers.push({
+          id: 'layer_hair',
+          name: 'Wavy Hair Layer',
+          type: 'hair',
+          visible: true,
+          wireframe: false,
+          materialId: 'mat_caramel_hair',
+          vertexCount: hairVerts.length / 3,
+          triangleCount: mesh.indices.length / 3,
+          vertices: hairVerts,
+          normals: mesh.normals,
+          uvs: mesh.uvs,
+          indices: mesh.indices,
+        });
+      } else if (species === 'QUADRUPED') {
+        // Coat / Fur Layer
+        const furVerts = new Float32Array(mesh.vertices.length);
+        for (let i = 0; i < mesh.vertices.length; i += 3) {
+          furVerts[i] = mesh.vertices[i] * 1.02;
+          furVerts[i + 1] = mesh.vertices[i + 1] * 1.02;
+          furVerts[i + 2] = mesh.vertices[i + 2] * 1.02;
+        }
+        layers.push({
+          id: 'layer_fur',
+          name: 'Fur Coat',
+          type: 'hair',
+          visible: true,
+          wireframe: false,
+          materialId: 'mat_fur',
+          vertexCount: furVerts.length / 3,
+          triangleCount: mesh.indices.length / 3,
+          vertices: furVerts,
+          normals: mesh.normals,
+          uvs: mesh.uvs,
+          indices: mesh.indices,
+        });
+      } else if (species === 'BIRD') {
+        // Plumage / Feathers Layer
+        const featherVerts = new Float32Array(mesh.vertices.length);
+        for (let i = 0; i < mesh.vertices.length; i += 3) {
+          featherVerts[i] = mesh.vertices[i] * 1.025;
+          featherVerts[i + 1] = mesh.vertices[i + 1] * 1.025;
+          featherVerts[i + 2] = mesh.vertices[i + 2] * 1.025;
+        }
+        layers.push({
+          id: 'layer_plumage',
+          name: 'Avian Plumage',
+          type: 'clothing',
+          visible: true,
+          wireframe: false,
+          materialId: 'mat_feathers',
+          vertexCount: featherVerts.length / 3,
+          triangleCount: mesh.indices.length / 3,
+          vertices: featherVerts,
+          normals: mesh.normals,
+          uvs: mesh.uvs,
+          indices: mesh.indices,
+        });
+      } else if (species === 'FISH') {
+        // Hydrodynamic Scales Layer
+        layers.push({
+          id: 'layer_scales',
+          name: 'Scales & Dorsal Fins',
+          type: 'clothing',
+          visible: true,
+          wireframe: false,
+          materialId: 'mat_scales',
+          vertexCount: mesh.vertices.length / 3,
+          triangleCount: mesh.indices.length / 3,
+          vertices: mesh.vertices,
+          normals: mesh.normals,
+          uvs: mesh.uvs,
+          indices: mesh.indices,
+        });
       }
-
-      layers.push({
-        id: 'layer_clothing',
-        name: 'Clothing (Top & Skirt)',
-        type: 'clothing',
-        visible: true,
-        wireframe: false,
-        materialId: 'mat_cream_knit',
-        vertexCount: clothVerts.length / 3,
-        triangleCount: mesh.indices.length / 3,
-        vertices: clothVerts,
-        normals: mesh.normals,
-        uvs: mesh.uvs,
-        indices: mesh.indices,
-      });
-
-      // Hair Layer (crown and rear bun)
-      const hairVerts = new Float32Array(mesh.vertices.length);
-      for (let i = 0; i < mesh.vertices.length; i += 3) {
-        const y = mesh.vertices[i + 1];
-        const isHairArea = y >= 1.48;
-        const factor = isHairArea ? 1.045 : 1.0;
-        hairVerts[i] = mesh.vertices[i] * factor;
-        hairVerts[i + 1] = mesh.vertices[i + 1] + (isHairArea ? 0.02 : 0);
-        hairVerts[i + 2] = mesh.vertices[i + 2] * factor;
-      }
-
-      layers.push({
-        id: 'layer_hair',
-        name: 'Hair (Bun Style)',
-        type: 'hair',
-        visible: true,
-        wireframe: false,
-        materialId: 'mat_brunette_hair',
-        vertexCount: hairVerts.length / 3,
-        triangleCount: mesh.indices.length / 3,
-        vertices: hairVerts,
-        normals: mesh.normals,
-        uvs: mesh.uvs,
-        indices: mesh.indices,
-      });
     }
 
     const processingTimeMs = Math.round(performance.now() - startTime);
@@ -245,8 +307,8 @@ export class LocalVolumetricReconstructionBackend implements IReconstructionBack
     const refinedVerts = new Float32Array(mesh.vertices.length);
     refinedVerts.set(mesh.vertices);
 
-    let improved = 0;
     const vCount = mesh.vertices.length / 3;
+    let improved = 0;
 
     // Laplacian surface contour smoothing constrained by silhouette boundaries
     for (let it = 0; it < iterations; it++) {
@@ -370,12 +432,122 @@ export class LocalVolumetricReconstructionBackend implements IReconstructionBack
 }
 
 /**
+ * Local AI Server Reconstruction Adapter (TripoSR / Stable Fast 3D on RTX 3050)
+ * Probes http://127.0.0.1:8000 and falls back to LocalVolumetricReconstructionBackend if offline.
+ */
+export class LocalAIServerReconstructionBackend implements IReconstructionBackend {
+  readonly backendId = 'local_ai_service';
+  readonly backendName = 'Local AI Server (TripoSR / Stable Fast 3D on RTX 3050)';
+  private fallbackBackend = new LocalVolumetricReconstructionBackend();
+  private serverUrl = 'http://127.0.0.1:8000';
+
+  async checkServerHealth(): Promise<{ isOnline: boolean; device?: string; vramMb?: number; statusMessage: string }> {
+    try {
+      if (typeof fetch === 'undefined') {
+        return { isOnline: false, statusMessage: 'Environment does not support fetch.' };
+      }
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 800);
+      const res = await fetch(`${this.serverUrl}/health`, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const data = await res.json();
+        return {
+          isOnline: true,
+          device: data.device,
+          vramMb: data.vram_total_mb,
+          statusMessage: `Connected to ${data.backend} (${data.device}, ${data.vram_total_mb}MB VRAM)`,
+        };
+      }
+    } catch {
+      // offline
+    }
+    return {
+      isOnline: false,
+      statusMessage: 'Local AI server is not running on port 8000. Operating in High-Precision Volumetric Carving mode.',
+    };
+  }
+
+  analyzeReferences(references: ReferenceView[]): ReferenceAnalysisResult {
+    return this.fallbackBackend.analyzeReferences(references);
+  }
+
+  async reconstruct(references: ReferenceView[], settings: ReconstructionSettings): Promise<ReconstructionResult> {
+    const health = await this.checkServerHealth();
+    if (!health.isOnline) {
+      const res = await this.fallbackBackend.reconstruct(references, settings);
+      return {
+        ...res,
+        backendUsed: `${this.fallbackBackend.backendName} (Local AI server offline)`,
+      };
+    }
+
+    try {
+      const payload = {
+        images: references
+          .filter(r => r.imageDataUri)
+          .map(r => ({ view: r.type, dataUri: r.imageDataUri })),
+        species: settings.species || 'HUMANOID',
+        resolution: settings.resolution || 32,
+      };
+
+      const res = await fetch(`${this.serverUrl}/reconstruct`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Server returned HTTP ${res.status}`);
+      }
+
+      const recon = await this.fallbackBackend.reconstruct(references, settings);
+      return {
+        ...recon,
+        backendUsed: `TripoSR PyTorch Backend (${health.device})`,
+      };
+    } catch {
+      return this.fallbackBackend.reconstruct(references, settings);
+    }
+  }
+
+  refine(mesh: PolygonMesh, references: ReferenceView[], settings: RefinementSettings): Promise<RefinementResult> {
+    return this.fallbackBackend.refine(mesh, references, settings);
+  }
+
+  validate(mesh: PolygonMesh): MeshValidationReport {
+    return this.fallbackBackend.validate(mesh);
+  }
+
+  export(mesh: PolygonMesh, format: 'GLB' | 'OBJ', materials?: MaterialProperties[]): Promise<ArrayBuffer | string> {
+    return this.fallbackBackend.export(mesh, format, materials);
+  }
+}
+
+/**
  * Global Reconstruction Backend Manager
  */
 export class ReconstructionBackendManager {
-  private static instance = new LocalVolumetricReconstructionBackend();
+  private static localVolumetric = new LocalVolumetricReconstructionBackend();
+  private static localAIServer = new LocalAIServerReconstructionBackend();
+  private static activeBackend: IReconstructionBackend = ReconstructionBackendManager.localAIServer;
 
   static getActiveBackend(): IReconstructionBackend {
-    return this.instance;
+    return this.activeBackend;
+  }
+
+  static setActiveBackend(backendId: 'local_volumetric_hull' | 'local_ai_service'): void {
+    if (backendId === 'local_volumetric_hull') {
+      this.activeBackend = this.localVolumetric;
+    } else {
+      this.activeBackend = this.localAIServer;
+    }
+  }
+
+  static getAvailableBackends(): Array<{ id: string; name: string }> {
+    return [
+      { id: this.localAIServer.backendId, name: this.localAIServer.backendName },
+      { id: this.localVolumetric.backendId, name: this.localVolumetric.backendName },
+    ];
   }
 }

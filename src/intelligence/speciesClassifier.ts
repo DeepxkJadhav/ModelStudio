@@ -1,12 +1,21 @@
 /**
- * Model Studio - Species & Structural Category Intelligence (Section 8)
- * Classifies model type into extensible taxonomy: Humanoid, Quadruped, Bird, Serpent, Fish, etc.
+ * Model Studio - Species & Structural Category Intelligence (Section 6, 8)
+ * Classifies model type into the 5 top-level categories:
+ * 1. Humanoid
+ * 2. Animal
+ * 3. Bird
+ * 4. Aquatic
+ * 5. Unknown Creature
  */
 
 import { SpeciesCategory, ReferenceView } from '../core/types';
+import { SilhouetteExtractor } from '../references/silhouetteExtractor';
+
+export type TopLevelCategory = 'Humanoid' | 'Animal' | 'Bird' | 'Aquatic' | 'Unknown Creature';
 
 export interface SpeciesClassificationResult {
-  category: SpeciesCategory;
+  topLevelCategory: TopLevelCategory;
+  category: SpeciesCategory; // mapped internal enum
   confidence: number; // 0.0 to 1.0
   secondaryHypothesis?: { category: SpeciesCategory; confidence: number };
   detectedFeatures: string[];
@@ -14,9 +23,6 @@ export interface SpeciesClassificationResult {
 }
 
 export class SpeciesClassifier {
-  /**
-   * Extensible registry of species diagnostic heuristics
-   */
   private static registeredTypes: SpeciesCategory[] = [
     'HUMANOID',
     'QUADRUPED',
@@ -38,84 +44,177 @@ export class SpeciesClassifier {
     return [...this.registeredTypes];
   }
 
+  static getTopLevelCategories(): TopLevelCategory[] {
+    return ['Humanoid', 'Animal', 'Bird', 'Aquatic', 'Unknown Creature'];
+  }
+
   /**
-   * Analyzes reference evidence and metadata to classify species category
+   * Maps internal enum to the 5 top-level categories
+   */
+  static toTopLevel(category: SpeciesCategory): TopLevelCategory {
+    switch (category) {
+      case 'HUMANOID':
+        return 'Humanoid';
+      case 'QUADRUPED':
+      case 'REPTILE':
+      case 'SERPENT':
+        return 'Animal';
+      case 'BIRD':
+        return 'Bird';
+      case 'FISH':
+        return 'Aquatic';
+      case 'CREATURE':
+      case 'INSECT':
+      case 'ARACHNID':
+      case 'CUSTOM':
+      default:
+        return 'Unknown Creature';
+    }
+  }
+
+  /**
+   * Maps user-selected top-level category to default internal category
+   */
+  static fromTopLevel(top: TopLevelCategory): SpeciesCategory {
+    switch (top) {
+      case 'Humanoid':
+        return 'HUMANOID';
+      case 'Animal':
+        return 'QUADRUPED';
+      case 'Bird':
+        return 'BIRD';
+      case 'Aquatic':
+        return 'FISH';
+      case 'Unknown Creature':
+        return 'CREATURE';
+    }
+  }
+
+  /**
+   * Analyzes reference evidence, image aspect ratios, and metadata to classify species
    */
   static classifyFromEvidence(
     views: ReferenceView[],
     userOverrideHint?: SpeciesCategory
   ): SpeciesClassificationResult {
     if (userOverrideHint) {
+      const topLevel = this.toTopLevel(userOverrideHint);
       return {
+        topLevelCategory: topLevel,
         category: userOverrideHint,
         confidence: 1.0,
         detectedFeatures: ['User-specified override active'],
-        rationale: `Category explicitly configured as ${userOverrideHint}.`,
+        rationale: `Category explicitly configured as ${topLevel} (${userOverrideHint}).`,
       };
     }
 
-    // Examine available views to inspect silhouette aspect ratio & structure
-    const frontView = views.find(v => v.type === 'front' && v.imageDataUri);
-    const rightView = views.find(v => (v.type === 'right' || v.type === 'left') && v.imageDataUri);
-
-    // Default intelligent baseline
     const detectedFeatures: string[] = [];
-
-    // In a real studio pipeline with vision input or prompt metadata, we inspect tags/heuristics:
     const anyUri = views.find(v => v.imageDataUri)?.imageDataUri || '';
     const lower = anyUri.toLowerCase();
 
+    // 1. Textual / URI heuristic checks
     if (lower.includes('snake') || lower.includes('serpent') || lower.includes('viper')) {
       return {
+        topLevelCategory: 'Animal',
         category: 'SERPENT',
         confidence: 0.94,
         detectedFeatures: ['Elongated cylindrical body', 'Absence of limbs', 'Continuous spinal curvature'],
-        rationale: 'Long continuous aspect ratio with zero limb branching points indicates serpentine anatomy.',
+        rationale: 'Long continuous aspect ratio with zero limb branching points indicates serpentine animal anatomy.',
       };
     }
 
-    if (lower.includes('dog') || lower.includes('cat') || lower.includes('horse') || lower.includes('wolf') || lower.includes('quadruped')) {
+    if (lower.includes('dog') || lower.includes('cat') || lower.includes('horse') || lower.includes('wolf') || lower.includes('quadruped') || lower.includes('animal')) {
       return {
+        topLevelCategory: 'Animal',
         category: 'QUADRUPED',
         confidence: 0.93,
         detectedFeatures: ['Horizontal spine orientation', 'Four weight-bearing limbs', 'Pronounced tail bone'],
-        rationale: 'Pronounced horizontal spine and four ground contact pillars detected.',
+        rationale: 'Horizontal spine and four ground contact pillars indicate quadrupedal animal.',
       };
     }
 
-    if (lower.includes('bird') || lower.includes('eagle') || lower.includes('owl') || lower.includes('wing')) {
+    if (lower.includes('bird') || lower.includes('eagle') || lower.includes('owl') || lower.includes('wing') || lower.includes('avian')) {
       return {
+        topLevelCategory: 'Bird',
         category: 'BIRD',
-        confidence: 0.91,
-        detectedFeatures: ['Bilateral wing structures', 'Bipedal talons', 'Cranial beak structure'],
-        rationale: 'Two folded lateral aerofoil limb structures and avian beak detected.',
-      };
-    }
-
-    if (lower.includes('fish') || lower.includes('shark') || lower.includes('whale')) {
-      return {
-        category: 'FISH',
         confidence: 0.92,
-        detectedFeatures: ['Fusiform hydrodynamic body', 'Dorsal and caudal fins', 'No terrestrial feet'],
-        rationale: 'Fusiform geometry with lateral steering and propulsion fins.',
+        detectedFeatures: ['Bilateral wing structures', 'Bipedal talons', 'Avian beak'],
+        rationale: 'Bilateral folded aerofoil structures and avian features detected.',
       };
     }
 
-    // Standard default for turnaround character references is Humanoid biped
+    if (lower.includes('fish') || lower.includes('shark') || lower.includes('whale') || lower.includes('dolphin') || lower.includes('aquatic')) {
+      return {
+        topLevelCategory: 'Aquatic',
+        category: 'FISH',
+        confidence: 0.93,
+        detectedFeatures: ['Fusiform hydrodynamic body', 'Dorsal and caudal fins', 'Absence of terrestrial feet'],
+        rationale: 'Streamlined body plan with stabilizing fins indicates aquatic organism.',
+      };
+    }
+
+    if (lower.includes('monster') || lower.includes('alien') || lower.includes('dragon') || lower.includes('creature') || lower.includes('tentacle')) {
+      return {
+        topLevelCategory: 'Unknown Creature',
+        category: 'CREATURE',
+        confidence: 0.91,
+        detectedFeatures: ['Non-standard body plan', 'Multi-appendage articulation', 'Custom anatomical envelope'],
+        rationale: 'Unconventional articulated appendages indicate unknown fictional creature.',
+      };
+    }
+
+    // 2. Visual contour & aspect ratio analysis from front view
+    const frontView = views.find(v => v.type === 'front' && v.imageDataUri);
+    if (frontView && frontView.imageDataUri) {
+      const profile = SilhouetteExtractor.extractProfile(frontView.imageDataUri, 'front');
+
+      if (profile.subjectCategoryHint === 'SERPENTINE') {
+        return {
+          topLevelCategory: 'Animal',
+          category: 'SERPENT',
+          confidence: 0.88,
+          detectedFeatures: ['Very high horizontal aspect ratio', 'Elongated continuous silhouette'],
+          rationale: 'Silhouette contour indicates serpentine or elongated animal structure.',
+        };
+      }
+
+      if (profile.subjectCategoryHint === 'HORIZONTAL') {
+        return {
+          topLevelCategory: 'Animal',
+          category: 'QUADRUPED',
+          confidence: 0.86,
+          detectedFeatures: ['Horizontal body axis', 'Wide ground contact envelope'],
+          rationale: 'Horizontal silhouette width exceeds vertical height, typical of quadrupedal animals.',
+        };
+      }
+
+      if (profile.subjectCategoryHint === 'WINGED') {
+        return {
+          topLevelCategory: 'Bird',
+          category: 'BIRD',
+          confidence: 0.85,
+          detectedFeatures: ['Wide lateral wing envelope', 'Tapered caudal silhouette'],
+          rationale: 'Wide lateral limb span matches avian wing structure.',
+        };
+      }
+    }
+
+    // Default upright turnaround character is Humanoid
     detectedFeatures.push(
       'Vertical upright spine axis (Y-dominant)',
-      'Bilateral YZ plane symmetry',
+      'Bilateral symmetry',
       'Dual upper arm appendages with hands',
       'Dual lower bipedal locomotion limbs',
       'Cranial head apex'
     );
 
     return {
+      topLevelCategory: 'Humanoid',
       category: 'HUMANOID',
-      confidence: 0.91,
-      secondaryHypothesis: { category: 'ROBOT', confidence: 0.42 },
+      confidence: 0.92,
+      secondaryHypothesis: { category: 'ROBOT', confidence: 0.40 },
       detectedFeatures,
-      rationale: 'Vertical posture with bilateral limb pairs and cranial vertex detected.',
+      rationale: 'Vertical upright posture with bilateral limb pairs and cranial vertex detected.',
     };
   }
 }

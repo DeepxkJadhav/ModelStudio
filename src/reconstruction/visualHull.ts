@@ -23,9 +23,27 @@ export class VisualHullReconstructor {
     views: ReferenceView[] = [],
     resolution: number = 32
   ): VoxelGrid {
-    // 3D Bounding Box: 1.2m wide (X), 1.85m tall (Y), 0.8m deep (Z)
-    const origin: [number, number, number] = [-0.6, 0.0, -0.4];
-    const size: [number, number, number] = [1.2, 1.85, 0.8];
+    // Dynamic 3D Bounding Box adapted to target species and subject anatomy
+    let origin: [number, number, number] = [-0.6, 0.0, -0.4];
+    let size: [number, number, number] = [1.2, 1.85, 0.8];
+
+    if (species === 'QUADRUPED') {
+      origin = [-0.5, 0.0, -0.8];
+      size = [1.0, 1.15, 1.6];
+    } else if (species === 'BIRD') {
+      origin = [-0.9, 0.0, -0.5];
+      size = [1.8, 1.1, 1.0];
+    } else if (species === 'SERPENT') {
+      origin = [-0.4, 0.0, -0.9];
+      size = [0.8, 0.45, 1.8];
+    } else if (species === 'FISH') {
+      origin = [-0.4, 0.1, -0.8];
+      size = [0.8, 0.8, 1.6];
+    } else if (species === 'CREATURE' || species === 'CUSTOM') {
+      origin = [-0.7, 0.0, -0.6];
+      size = [1.4, 1.6, 1.2];
+    }
+
     const totalVoxels = resolution * resolution * resolution;
     const densities = new Float32Array(totalVoxels);
 
@@ -63,7 +81,7 @@ export class VisualHullReconstructor {
             let maxSilhouetteViolation = -1.0;
 
             for (const { viewType, profile } of activeProfiles) {
-              const isInside = SilhouetteExtractor.isInsideSilhouette(x, y, z, profile, viewType);
+              const isInside = SilhouetteExtractor.isInsideSilhouette(x, y, z, profile, viewType, size[1]);
               if (!isInside) {
                 // Point is outside this camera's observed silhouette -> carve away
                 maxSilhouetteViolation = Math.max(maxSilhouetteViolation, 0.25);

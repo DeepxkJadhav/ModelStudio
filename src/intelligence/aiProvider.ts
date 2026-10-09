@@ -115,13 +115,63 @@ export class AIProviderService {
   }
 
   /**
-   * Interprets natural language animation commands (Section 30, 31)
+   * Interprets natural language animation commands with species-aware translation (Section 8)
    */
-  async interpretAnimationPrompt(prompt: string): Promise<Array<{ action: string; duration: number; params?: any }>> {
+  async interpretAnimationPrompt(
+    prompt: string,
+    species: string = 'HUMANOID'
+  ): Promise<Array<{ action: string; duration: number; params?: any }>> {
     const lower = prompt.toLowerCase();
     const actions: Array<{ action: string; duration: number; params?: any }> = [];
 
-    // Parse sequential chains
+    // Species-specific motion guard & adaptation
+    if (species === 'FISH') {
+      if (lower.includes('walk') || lower.includes('run') || lower.includes('swim') || lower.includes('forward')) {
+        return [{ action: 'SWIM', duration: 3.0, params: { speed: 1.2, note: 'Mapped locomotion to aquatic swimming' } }];
+      }
+      if (lower.includes('turn')) {
+        return [{ action: 'TURN', duration: 1.5, params: { angle: 90 } }];
+      }
+      return [{ action: 'SWIM', duration: 2.5 }];
+    }
+
+    if (species === 'SERPENT') {
+      if (lower.includes('walk') || lower.includes('run') || lower.includes('slither') || lower.includes('forward')) {
+        return [{ action: 'SLITHER', duration: 3.0, params: { waveFreq: 1.5 } }];
+      }
+      if (lower.includes('coil')) {
+        return [{ action: 'COIL', duration: 2.0 }];
+      }
+      if (lower.includes('strike') || lower.includes('attack')) {
+        return [{ action: 'STRIKE', duration: 1.0 }];
+      }
+      return [{ action: 'SLITHER', duration: 2.5 }];
+    }
+
+    if (species === 'BIRD') {
+      if (lower.includes('fly') || lower.includes('fly forward') || lower.includes('soar')) {
+        return [{ action: 'FLY', duration: 3.0, params: { speed: 1.5 } }];
+      }
+      if (lower.includes('flap') || lower.includes('wings')) {
+        return [{ action: 'FLAP', duration: 2.5 }];
+      }
+    }
+
+    // Directional turns
+    if (lower.includes('turn left')) {
+      actions.push({ action: 'TURN_LEFT', duration: 1.2, params: { angle: -90 } });
+    } else if (lower.includes('turn right')) {
+      actions.push({ action: 'TURN_RIGHT', duration: 1.2, params: { angle: 90 } });
+    } else if (lower.includes('turn')) {
+      actions.push({ action: 'TURN', duration: 1.0, params: { angle: 180 } });
+    }
+
+    // Gestures
+    if (lower.includes('wave') || lower.includes('hello')) {
+      actions.push({ action: 'WAVE', duration: 2.0, params: { arm: 'Right' } });
+    }
+
+    // Walking / Running
     if (lower.includes('walk backward') || lower.includes('backward')) {
       actions.push({ action: 'WALK', duration: 2.0, params: { direction: 'backward', speed: 1.0 } });
     } else if (lower.includes('walk') || lower.includes('walk forward')) {
@@ -130,10 +180,6 @@ export class AIProviderService {
 
     if (lower.includes('run')) {
       actions.push({ action: 'RUN', duration: 2.5, params: { speed: 2.4 } });
-    }
-
-    if (lower.includes('stop')) {
-      actions.push({ action: 'IDLE', duration: 0.8 });
     }
 
     if (lower.includes('crouch')) {
@@ -148,33 +194,15 @@ export class AIProviderService {
       actions.push({ action: 'STAND', duration: 0.8 });
     }
 
-    if (lower.includes('turn')) {
-      actions.push({ action: 'TURN', duration: 1.0, params: { angle: 180 } });
-    }
-
     if (lower.includes('sit')) {
       actions.push({ action: 'SIT', duration: 2.0 });
     }
 
-    // Creature / serpent / bird specials
-    if (lower.includes('slither')) {
-      actions.push({ action: 'SLITHER', duration: 3.0, params: { waveFreq: 1.5 } });
-    }
-
-    if (lower.includes('coil')) {
-      actions.push({ action: 'COIL', duration: 2.0 });
-    }
-
-    if (lower.includes('strike')) {
-      actions.push({ action: 'STRIKE', duration: 1.0 });
-    }
-
-    if (lower.includes('flap') || lower.includes('fly')) {
-      actions.push({ action: 'FLAP', duration: 2.5 });
+    if (lower.includes('stop') || lower.includes('idle')) {
+      actions.push({ action: 'IDLE', duration: 1.0 });
     }
 
     if (actions.length === 0) {
-      // Default fallback
       actions.push({ action: 'IDLE', duration: 2.0 });
     }
 
