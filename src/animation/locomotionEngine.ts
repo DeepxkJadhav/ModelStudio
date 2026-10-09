@@ -34,8 +34,11 @@ export class LocomotionEngine {
         return this.evaluateBirdPose(action, t * speed);
       case 'FISH':
         return this.evaluateFishPose(action, t * speed);
+      case 'INSECT':
+      case 'ARACHNID':
+        return this.evaluateHexapodPose(action, t * speed);
       default:
-        return this.evaluateCreaturePose(action, t * speed);
+        return this.evaluateCreaturePose(action, t * speed, skeleton);
     }
   }
 
@@ -213,11 +216,70 @@ export class LocomotionEngine {
     return frame;
   }
 
-  private static evaluateCreaturePose(action: string, t: number): BoneTransformFrame {
+  private static evaluateHexapodPose(action: string, t: number): BoneTransformFrame {
     const frame: BoneTransformFrame = {};
+    const freq = action === 'RUN' ? 8.0 : 5.0;
+    const phase = t * freq;
+    const amp = 0.35;
+
+    // Alternating Tripod Gait:
+    // Tripod 1: FL, MR, RL
+    // Tripod 2: FR, ML, RR
+    const t1 = Math.sin(phase) * amp;
+    const t2 = -Math.sin(phase) * amp;
+
+    ['FL_Femur', 'MR_Femur', 'RL_Femur'].forEach(b => {
+      frame[b] = { rotation: this.eulerToQuat(t1, 0, 0) };
+    });
+    ['FR_Femur', 'ML_Femur', 'RR_Femur'].forEach(b => {
+      frame[b] = { rotation: this.eulerToQuat(t2, 0, 0) };
+    });
+
+    frame['Thorax_Root'] = {
+      position: [0, 0.4 + Math.abs(Math.sin(phase * 2)) * 0.02, 0],
+      rotation: this.eulerToQuat(0, Math.sin(phase) * 0.05, 0),
+    };
+    frame['Head_Cranium'] = { rotation: this.eulerToQuat(0, -Math.sin(phase) * 0.03, 0) };
+
+    return frame;
+  }
+
+  private static evaluateCreaturePose(action: string, t: number, skeleton?: SkeletonDefinition): BoneTransformFrame {
+    const frame: BoneTransformFrame = {};
+    const freq = 4.0;
+    const phase = t * freq;
     const sway = Math.sin(t * 3.0) * 0.2;
 
+    // Core body sway
+    frame['CreatureChest'] = { rotation: this.eulerToQuat(0, sway * 0.4, 0) };
     frame['CoreChest'] = { rotation: this.eulerToQuat(0, sway * 0.5, 0) };
+    frame['CreatureHead'] = { rotation: this.eulerToQuat(0, -sway * 0.2, 0) };
+
+    // Multi-leg gait (Leg1..Leg3 pairs)
+    for (let i = 1; i <= 4; i++) {
+      const legPhase = phase + (i * Math.PI) / 3;
+      const angleL = Math.sin(legPhase) * 0.35;
+      const angleR = -Math.sin(legPhase) * 0.35;
+      frame[`Leg${i}_L_Hip`] = { rotation: this.eulerToQuat(angleL, 0, 0) };
+      frame[`Leg${i}_R_Hip`] = { rotation: this.eulerToQuat(angleR, 0, 0) };
+    }
+
+    // Wings flapping
+    const flap = Math.sin(t * 6.0) * 0.45;
+    frame['Wing_L_Humerus'] = { rotation: this.eulerToQuat(0, 0, -flap) };
+    frame['Wing_R_Humerus'] = { rotation: this.eulerToQuat(0, 0, flap) };
+
+    // Upper Arms
+    frame['UpperArm_L_Shoulder'] = { rotation: this.eulerToQuat(Math.sin(t * 2) * 0.2, 0, 0.1) };
+    frame['UpperArm_R_Shoulder'] = { rotation: this.eulerToQuat(-Math.sin(t * 2) * 0.2, 0, -0.1) };
+
+    // Tail wave
+    for (let s = 1; s <= 6; s++) {
+      const tailAngle = Math.sin(t * 4.0 - s * 0.4) * 0.25;
+      frame[`CreatureTail_${s}`] = { rotation: this.eulerToQuat(0, tailAngle, 0) };
+    }
+
+    // Fallback appendage bones
     frame['AppendageL'] = { rotation: this.eulerToQuat(sway, 0, 0.3) };
     frame['AppendageR'] = { rotation: this.eulerToQuat(-sway, 0, -0.3) };
     frame['CaudalAppendage'] = { rotation: this.eulerToQuat(0, Math.sin(t * 4.0) * 0.4, 0) };

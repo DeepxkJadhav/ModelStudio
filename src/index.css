@@ -18,18 +18,20 @@
   --studio-danger: #ef4444;
 }
 
-body {
-  margin: 0;
-  padding: 0;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background-color: var(--studio-bg);
-  color: var(--studio-text);
-  overflow: hidden;
-  user-select: none;
+*, *::before, *::after {
+  box-sizing: border-box;
 }
 
-code, pre, .font-mono {
-  font-family: 'JetBrains Mono', monospace;
+html, body, #root {
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: #090d16;
+  color: #f1f5f9;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  user-select: none;
 }
 
 /* Custom Scrollbar for Studio panels */
@@ -119,12 +121,20 @@ code, pre, .font-mono {
   color: #7dd3fc;
 }
 
-/* Animations */
-@keyframes pulse-subtle {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+/* Bulletproof layout fallbacks */
+.slot-preview-box {
+  width: 100%;
+  height: 96px;
+  max-height: 96px;
+  overflow: hidden;
+  position: relative;
+  background-color: #020617;
+  border-radius: 4px;
 }
 
-.animate-pulse-subtle {
-  animation: pulse-subtle 2s infinite ease-in-out;
+.slot-preview-box img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }

@@ -1,6 +1,7 @@
 /**
  * Model Studio - Reference Image Viewport Overlay (Section 41)
- * Projects reference views directly into the 3D viewport with opacity and camera matching
+ * Projects reference views directly into the 3D viewport as a non-intrusive backdrop
+ * Positioned behind model geometry to never occlude or be confused with the 3D asset.
  */
 
 import * as THREE from 'three';
@@ -27,6 +28,8 @@ export class ReferenceOverlayManager {
 
     this.planeMesh = new THREE.Mesh(geometry, this.planeMaterial);
     this.planeMesh.name = 'ReferenceOverlayPlane';
+    this.planeMesh.renderOrder = -1; // Render behind 3D model geometry
+    this.planeMesh.position.set(0, 0.9, -1.2); // Positioned safely behind character
     this.planeMesh.visible = false;
     scene.add(this.planeMesh);
   }
@@ -60,9 +63,9 @@ export class ReferenceOverlayManager {
   alignToCamera(cameraParams: CameraParameters): void {
     if (!this.planeMesh) return;
 
-    // Position overlay plane facing camera target
+    // Position overlay plane facing camera target, behind the model
     const [tx, ty, tz] = cameraParams.target;
-    this.planeMesh.position.set(tx, ty, tz - 0.05);
+    this.planeMesh.position.set(tx, ty, tz - 1.2);
     this.planeMesh.rotation.y = (cameraParams.azimuth * Math.PI) / 180;
   }
 

@@ -12,7 +12,9 @@ import {
   BackgroundJob,
   ReferenceViewType,
   ActionStep,
+  StudioWorkflowMode,
 } from './types';
+import { ProjectSerializer } from './project';
 import { DefaultModelFactory } from './defaultModels';
 import { HistoryManager } from '../editing/historyManager';
 import { detectHardwareCapabilities, HardwareProfile } from './hardware';
@@ -30,6 +32,8 @@ import { QualityScorer } from '../quality/qualityScorer';
 import { aiProvider } from '../intelligence/aiProvider';
 import { AIMeshEditor } from '../editing/aiMeshEditor';
 import { ActionSequencer } from '../animation/actionSequencer';
+import { AutomaticUnderstandingEngine } from '../intelligence/automaticUnderstandingEngine';
+import { ReconstructionBackendManager } from '../reconstruction/reconstructionBackend';
 import { studioEvents } from './eventBus';
 
 interface StudioStateContextType {
@@ -60,8 +64,24 @@ interface StudioStateContextType {
   setShowExportModal: (show: boolean) => void;
   showJobsDrawer: boolean;
   setShowJobsDrawer: (show: boolean) => void;
+  showUnderstandingModal: boolean;
+  setShowUnderstandingModal: (show: boolean) => void;
+  showDiagnosticsModal: boolean;
+  setShowDiagnosticsModal: (show: boolean) => void;
+  workflowMode: StudioWorkflowMode;
+  setWorkflowMode: (mode: StudioWorkflowMode) => void;
+  leftSidebarOpen: boolean;
+  setLeftSidebarOpen: (open: boolean) => void;
+  rightSidebarOpen: boolean;
+  setRightSidebarOpen: (open: boolean) => void;
+  projectName: string;
+  setProjectName: (name: string) => void;
 
   // Actions
+  saveProjectToFile: () => void;
+  toggleLayerVisibility: (layerId: string) => void;
+  acceptAutomaticUnderstanding: () => void;
+  overrideModelUnderstanding: (patch: { species?: SpeciesCategory; anatomy?: any }) => void;
   switchSpecies: (species: SpeciesCategory) => void;
   setReferenceImage: (slotId: string, dataUri: string) => void;
   generateMissingView: (slotId: string) => void;
@@ -84,8 +104,8 @@ export const StudioStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const historyMgr = useRef(new HistoryManager()).current;
 
   const [project, setProject] = useState<StudioProject>(() => {
-    const init = DefaultModelFactory.createTurnaroundModelProject('/reference_sheet.jpg');
-    historyMgr.pushSnapshot('Turnaround Character', 'Initialized character model from uploaded reference sheet', init);
+    const init = DefaultModelFactory.createTurnaroundModelProject('/references/front.png');
+    historyMgr.pushSnapshot('Turnaround Character', 'Initialized character model from uploaded reference photos', init);
     return init;
   });
 
@@ -101,6 +121,12 @@ export const StudioStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [showQualityModal, setShowQualityModal] = useState<boolean>(false);
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
   const [showJobsDrawer, setShowJobsDrawer] = useState<boolean>(false);
+  const [showUnderstandingModal, setShowUnderstandingModal] = useState<boolean>(false);
+  const [showDiagnosticsModal, setShowDiagnosticsModal] = useState<boolean>(false);
+  const [workflowMode, setWorkflowMode] = useState<StudioWorkflowMode>('MODEL');
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState<boolean>(true);
+  const [rightSidebarOpen, setRightSidebarOpen] = useState<boolean>(true);
+  const [projectName, setProjectName] = useState<string>('Turnaround Character');
 
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [canRedo, setCanRedo] = useState<boolean>(false);
@@ -109,6 +135,28 @@ export const StudioStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setCanUndo(historyMgr.canUndo());
     setCanRedo(historyMgr.canRedo());
   }, [historyMgr]);
+
+  const toggleLayerVisibility = useCallback((layerId: string) => {
+    setProject(prev => {
+      const updatedLayers = prev.layers.map(l =>
+        l.id === layerId ? { ...l, visible: !l.visible } : l
+      );
+      const next = { ...prev, layers: updatedLayers };
+      studioEvents.emit('model-reconstructed', next);
+      return next;
+    });
+  }, []);
+
+  const saveProjectToFile = useCallback(() => {
+    const jsonStr = ProjectSerializer.serialize(project);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${projectName.toLowerCase().replace(/\s+/g, '_')}.modelstudio`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [project, projectName]);
 
   const addJob = useCallback((name: string, category: BackgroundJob['category']): string => {
     const id = `job_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
@@ -154,11 +202,66 @@ export const StudioStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
       });
 
       const coverageReport = CoverageCalculator.computeCoverage(updatedViews);
+      const autoUnderstanding = AutomaticUnderstandingEngine.analyze(updatedViews);
       const qualityMetrics = QualityScorer.evaluateQuality(prev.layers, prev.skeleton, updatedViews);
 
-      const next = { ...prev, referenceViews: updatedViews, coverageReport, qualityMetrics };
+      const next = {
+        ...prev,
+        referenceViews: updatedViews,
+        coverageReport,
+        automaticUnderstanding: autoUnderstanding,
+        qualityMetrics,
+      };
       historyMgr.pushSnapshot('Add Reference', `Uploaded reference view ${slotId}`, next);
       updateHistoryState();
+      return next;
+    });
+  }, [historyMgr, updateHistoryState]);
+
+  const acceptAutomaticUnderstanding = useCallback(() => {
+    setProject(prev => {
+      if (!prev.automaticUnderstanding) return prev;
+      const next = {
+        ...prev,
+        automaticUnderstanding: {
+          ...prev.automaticUnderstanding,
+          userAccepted: true,
+        },
+      };
+      historyMgr.pushSnapshot('Accept AI Understanding', 'Confirmed automatic model understanding & rig', next);
+      updateHistoryState();
+      return next;
+    });
+  }, [historyMgr, updateHistoryState]);
+
+  const overrideModelUnderstanding = useCallback((patch: { species?: SpeciesCategory; anatomy?: any }) => {
+    setProject(prev => {
+      const updatedUnderstanding = AutomaticUnderstandingEngine.analyze(prev.referenceViews, {
+        species: patch.species,
+        customAnatomy: patch.anatomy,
+      });
+
+      const newSkeleton = SkeletonGenerator.generateSkeleton(
+        updatedUnderstanding.speciesCategory,
+        patch.anatomy || {
+          weightBearingLegs: updatedUnderstanding.anatomy.weightBearingLegs,
+          manipulatorArms: updatedUnderstanding.anatomy.manipulatorArms,
+          hasWings: updatedUnderstanding.anatomy.wingsCount > 0,
+          hasTail: updatedUnderstanding.anatomy.tailPresent,
+          tailSegments: updatedUnderstanding.anatomy.tailSegments,
+        }
+      );
+
+      const next = {
+        ...prev,
+        species: updatedUnderstanding.speciesCategory,
+        skeleton: newSkeleton,
+        automaticUnderstanding: updatedUnderstanding,
+      };
+
+      historyMgr.pushSnapshot('Override Model Type', `Adjusted model to ${updatedUnderstanding.speciesCategory}`, next);
+      updateHistoryState();
+      studioEvents.emit('model-reconstructed', next);
       return next;
     });
   }, [historyMgr, updateHistoryState]);
@@ -230,96 +333,124 @@ export const StudioStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
         return v;
       });
 
-      const classification = SpeciesClassifier.classifyFromEvidence(updatedViews);
-      const anatomy = AnatomyDetector.analyzeAnatomy(classification.category);
+      const autoUnderstanding = AutomaticUnderstandingEngine.analyze(updatedViews);
+      const skeleton = SkeletonGenerator.generateSkeleton(
+        autoUnderstanding.speciesCategory,
+        autoUnderstanding.anatomy
+      );
+      const anatomy = AnatomyDetector.analyzeAnatomy(autoUnderstanding.speciesCategory);
       const coverageReport = CoverageCalculator.computeCoverage(updatedViews);
-      const qualityMetrics = QualityScorer.evaluateQuality(prev.layers, prev.skeleton, updatedViews);
+      const qualityMetrics = QualityScorer.evaluateQuality(prev.layers, skeleton, updatedViews);
 
       const next = {
         ...prev,
-        species: classification.category,
+        species: autoUnderstanding.speciesCategory,
         anatomicalAnalysis: anatomy,
+        skeleton,
         referenceViews: updatedViews,
         coverageReport,
+        automaticUnderstanding: autoUnderstanding,
         qualityMetrics,
       };
 
-      historyMgr.pushSnapshot('Deconstruct Turnaround Sheet', `Extracted ${panels.length} views from sheet`, next);
+      historyMgr.pushSnapshot(
+        'Autonomous Model Understanding',
+        `Classified as ${autoUnderstanding.speciesCategory} (${autoUnderstanding.speciesConfidence}% confidence)`,
+        next
+      );
       updateHistoryState();
+      studioEvents.emit('model-reconstructed', next);
       return next;
     });
 
-    updateJob(jobId, { status: 'COMPLETED', progress: 100, detail: `Extracted ${panels.length} panel views successfully` });
+    updateJob(jobId, {
+      status: 'COMPLETED',
+      progress: 100,
+      detail: `Extracted ${panels.length} panel views & completed automatic model understanding`,
+    });
   }, [addJob, updateJob, historyMgr, updateHistoryState]);
 
   const runReconstruction = useCallback(async () => {
     const jobId = addJob('Volumetric 3D Reconstruction', 'RECONSTRUCTION');
-    updateJob(jobId, { progress: 25, detail: 'Sampling silhouette visual hull constraints...' });
+    updateJob(jobId, { progress: 20, detail: 'Sampling multi-view silhouette visual hull constraints...' });
 
-    await new Promise(r => setTimeout(r, 200));
-    updateJob(jobId, { progress: 55, detail: 'Running Marching Cubes isosurface extraction...' });
+    const backend = ReconstructionBackendManager.getActiveBackend();
 
-    await new Promise(r => setTimeout(r, 200));
-    updateJob(jobId, { progress: 85, detail: 'Generating conformal UV atlas and topology...' });
+    updateJob(jobId, { progress: 50, detail: 'Running Marching Cubes isosurface polygonization...' });
+    const result = await backend.reconstruct(project.referenceViews, {
+      species: project.species,
+      qualityPreset,
+    });
+
+    updateJob(jobId, { progress: 80, detail: 'Computing skinning deformation weights and UV coordinates...' });
+    const validation = backend.validate(result.mesh);
 
     setProject(prev => {
-      const res = prev.qualityPreset === 'ULTRA' ? 34 : prev.qualityPreset === 'HIGH' ? 30 : 26;
-      const grid = VisualHullReconstructor.generateDensityField(prev.species, prev.referenceViews, res);
-      const polyMesh = MarchingCubesPolygonizer.extractSurface(grid, 0.0);
-      const uvs = UVGenerator.generateUVs(polyMesh.vertices);
-      const skinning = AutoWeightingEngine.computeWeights(polyMesh.vertices, prev.skeleton);
-
-      const bodyLayer = {
-        ...prev.layers[0],
-        vertexCount: polyMesh.vertices.length / 3,
-        triangleCount: polyMesh.indices.length / 3,
-        vertices: polyMesh.vertices,
-        normals: polyMesh.normals,
-        uvs,
-        indices: polyMesh.indices,
+      // Skinning weights
+      const skinning = AutoWeightingEngine.computeWeights(result.mesh.vertices, prev.skeleton);
+      const layersWithWeights = result.layers.map(l => ({
+        ...l,
         skinIndices: skinning.skinIndices,
         skinWeights: skinning.skinWeights,
-      };
+      }));
 
-      const layers = [bodyLayer, ...prev.layers.slice(1)];
-      const qualityMetrics = QualityScorer.evaluateQuality(layers, prev.skeleton, prev.referenceViews);
-      const next = { ...prev, layers, qualityMetrics };
+      const qualityMetrics = QualityScorer.evaluateQuality(layersWithWeights, prev.skeleton, prev.referenceViews);
+      const next = { ...prev, layers: layersWithWeights, qualityMetrics };
 
-      historyMgr.pushSnapshot('Reconstruction Pass', `Reconstructed mesh (${polyMesh.indices.length / 3} tris)`, next);
+      historyMgr.pushSnapshot(
+        'Volumetric 3D Reconstruction',
+        `Reconstructed genuine 3D model (${result.triangleCount} tris, ${result.dimensions.width.toFixed(2)}m x ${result.dimensions.height.toFixed(2)}m x ${result.dimensions.depth.toFixed(2)}m)`,
+        next
+      );
       updateHistoryState();
       studioEvents.emit('model-reconstructed', next);
       return next;
     });
 
-    updateJob(jobId, { status: 'COMPLETED', progress: 100, detail: 'Watertight surface generated successfully' });
-  }, [addJob, updateJob, historyMgr, updateHistoryState]);
+    updateJob(jobId, {
+      status: 'COMPLETED',
+      progress: 100,
+      detail: `Reconstructed watertight 3D model (${result.triangleCount} tris, ${validation.isVolumetric ? 'Volumetric Depth Verified' : 'Standard Depth'})`,
+    });
+  }, [project, qualityPreset, addJob, updateJob, historyMgr, updateHistoryState]);
 
   const runRefinementPass = useCallback(async () => {
     const jobId = addJob('Camera Refinement Loop', 'RECONSTRUCTION');
-    updateJob(jobId, { progress: 40, detail: 'Comparing rendered contours against reference cameras...' });
+    updateJob(jobId, { progress: 40, detail: 'Optimizing mesh contours against reference camera projections...' });
 
-    await new Promise(r => setTimeout(r, 300));
+    const backend = ReconstructionBackendManager.getActiveBackend();
+    const primaryLayer = project.layers[0];
+    const mesh = {
+      vertices: primaryLayer.vertices instanceof Float32Array ? primaryLayer.vertices : new Float32Array(primaryLayer.vertices),
+      normals: primaryLayer.normals instanceof Float32Array ? primaryLayer.normals : new Float32Array(primaryLayer.normals),
+      uvs: primaryLayer.uvs instanceof Float32Array ? primaryLayer.uvs : new Float32Array(primaryLayer.uvs),
+      indices: primaryLayer.indices instanceof Uint32Array ? primaryLayer.indices : new Uint32Array(primaryLayer.indices),
+    };
+
+    const refinement = await backend.refine(mesh, project.referenceViews, { iterations: 2 });
+
     setProject(prev => {
-      const primaryLayer = prev.layers[0];
-      const { refinedVertices, report } = ReconstructionRefinementLoop.runRefinementPass(
-        primaryLayer.vertices as Float32Array,
-        prev.referenceViews,
-        2
-      );
-
-      const updatedLayer = { ...primaryLayer, vertices: refinedVertices };
+      const updatedLayer = { ...prev.layers[0], vertices: refinement.refinedMesh.vertices };
       const layers = [updatedLayer, ...prev.layers.slice(1)];
       const qualityMetrics = QualityScorer.evaluateQuality(layers, prev.skeleton, prev.referenceViews);
       const next = { ...prev, layers, qualityMetrics };
 
-      historyMgr.pushSnapshot('Refinement Pass', `Refinement iteration converged (${report.contourAlignmentScore}% alignment)`, next);
+      historyMgr.pushSnapshot(
+        'Refinement Pass',
+        `Contour alignment score: ${Math.round(refinement.silhouetteOverlapRatio * 100)}% (${refinement.improvedVertexCount} vertices adjusted)`,
+        next
+      );
       updateHistoryState();
       studioEvents.emit('model-reconstructed', next);
       return next;
     });
 
-    updateJob(jobId, { status: 'COMPLETED', progress: 100, detail: 'Refinement loop completed' });
-  }, [addJob, updateJob, historyMgr, updateHistoryState]);
+    updateJob(jobId, {
+      status: 'COMPLETED',
+      progress: 100,
+      detail: `Refinement converged (Silhouette IoU: ${(refinement.silhouetteOverlapRatio * 100).toFixed(1)}%)`,
+    });
+  }, [project, addJob, updateJob, historyMgr, updateHistoryState]);
 
   const runAutoRigging = useCallback(async () => {
     const jobId = addJob('Adaptive Rig & Skin Weighting', 'RIGGING');
@@ -452,6 +583,22 @@ export const StudioStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
         setShowExportModal,
         showJobsDrawer,
         setShowJobsDrawer,
+        showUnderstandingModal,
+        setShowUnderstandingModal,
+        showDiagnosticsModal,
+        setShowDiagnosticsModal,
+        workflowMode,
+        setWorkflowMode,
+        leftSidebarOpen,
+        setLeftSidebarOpen,
+        rightSidebarOpen,
+        setRightSidebarOpen,
+        projectName,
+        setProjectName,
+        saveProjectToFile,
+        toggleLayerVisibility,
+        acceptAutomaticUnderstanding,
+        overrideModelUnderstanding,
         switchSpecies,
         setReferenceImage,
         generateMissingView,

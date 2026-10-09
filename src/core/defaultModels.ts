@@ -23,6 +23,7 @@ import { CoverageCalculator } from '../references/coverageCalculator';
 import { VisualHullReconstructor } from '../reconstruction/visualHull';
 import { MarchingCubesPolygonizer } from '../reconstruction/marchingCubes';
 import { UVGenerator } from '../reconstruction/uvGenerator';
+import { AutomaticUnderstandingEngine } from '../intelligence/automaticUnderstandingEngine';
 
 export class DefaultModelFactory {
   static createDefaultProject(species: SpeciesCategory = 'HUMANOID'): StudioProject {
@@ -216,6 +217,7 @@ export class DefaultModelFactory {
       qualityMetrics,
       historySnapshots: [],
       currentVersion: 1,
+      automaticUnderstanding: AutomaticUnderstandingEngine.analyze(views, { species }),
     };
 
     return initialProject;
@@ -224,24 +226,35 @@ export class DefaultModelFactory {
   /**
    * Generates a fully calibrated character studio project directly from the uploaded Turnaround Sheet
    */
-  static createTurnaroundModelProject(sheetUri: string = '/reference_sheet.jpg'): StudioProject {
+  static createTurnaroundModelProject(sheetUri: string = '/references/front.png'): StudioProject {
     const species: SpeciesCategory = 'HUMANOID';
     const refManager = new ReferenceManager();
 
-    // Populate all intake slots from observed turnaround sheet
-    const views = refManager.getAllViews().map(v => ({
-      ...v,
-      imageDataUri: sheetUri,
-      status: 'OBSERVED' as const,
-      uncertaintyScore: 0.03,
-    }));
+    // Populate all intake slots with specific orthographic reference images
+    const views = refManager.getAllViews().map(v => {
+      let imageUri = '/references/front.png';
+      if (v.type === 'front') imageUri = '/references/front.png';
+      else if (v.type === 'left' || v.type === 'right') imageUri = '/references/side.png';
+      else if (v.type === 'back') imageUri = '/references/back.png';
+      else if (v.type === 'top') imageUri = '/references/top.png';
+      else if (v.type === 'bottom') imageUri = '/references/bottom.png';
+      else if (v.type === 'front_three_quarter') imageUri = '/references/front.png';
+      else if (v.type === 'back_three_quarter') imageUri = '/references/back.png';
 
-    // Add specialized detail slots from sheet
+      return {
+        ...v,
+        imageDataUri: imageUri,
+        status: 'OBSERVED' as const,
+        uncertaintyScore: 0.02,
+      };
+    });
+
+    // Add specialized detail slots from the provided multi-view photos
     views.push({
       id: 'face_closeup',
       type: 'face_closeup',
-      label: 'Face Close-up',
-      imageDataUri: sheetUri,
+      label: 'Face Portrait',
+      imageDataUri: '/references/front.png',
       status: 'OBSERVED',
       cameraEstimate: { azimuth: 0, elevation: 5, fov: 25, distance: 1.2, isOrthographic: false },
       uncertaintyScore: 0.01,
@@ -249,32 +262,26 @@ export class DefaultModelFactory {
     views.push({
       id: 'detail_hair',
       type: 'detail',
-      label: 'Hair & Neck Detail',
-      imageDataUri: sheetUri,
+      label: 'Wavy Hair Profile',
+      imageDataUri: '/references/side.png',
       status: 'OBSERVED',
-      cameraEstimate: { azimuth: 180, elevation: 10, fov: 30, distance: 1.4, isOrthographic: false },
+      cameraEstimate: { azimuth: 90, elevation: 5, fov: 30, distance: 1.3, isOrthographic: false },
       uncertaintyScore: 0.02,
     });
     views.push({
-      id: 'expressions',
+      id: 'detail_footwear',
       type: 'custom',
-      label: 'Expression Variations (6 Poses)',
-      imageDataUri: sheetUri,
+      label: 'Footwear & Sole Detail',
+      imageDataUri: '/references/bottom.png',
       status: 'OBSERVED',
-      cameraEstimate: { azimuth: 15, elevation: 5, fov: 35, distance: 1.5, isOrthographic: false },
+      cameraEstimate: { azimuth: 0, elevation: -80, fov: 35, distance: 1.5, isOrthographic: false },
       uncertaintyScore: 0.02,
     });
 
     const coverageReport = CoverageCalculator.computeCoverage(views);
 
-    // Humanoid skeleton with high-heel foot rig adaptation
+    // Humanoid skeleton calibrated for casual flat-sole sneaker posture
     const skeleton = SkeletonGenerator.generateSkeleton(species);
-
-    // High heel foot bone adjustment: pitch ankles downward 35 degrees
-    const lFoot = skeleton.bones.find(b => b.name === 'LeftFoot');
-    if (lFoot) lFoot.rotation = [0.3, 0, 0, 0.95];
-    const rFoot = skeleton.bones.find(b => b.name === 'RightFoot');
-    if (rFoot) rFoot.rotation = [0.3, 0, 0, 0.95];
 
     // Surface reconstruction
     const grid = VisualHullReconstructor.generateDensityField(species, views, 30);
@@ -282,13 +289,13 @@ export class DefaultModelFactory {
     const uvs = UVGenerator.generateUVs(polyMesh.vertices);
     const skinning = AutoWeightingEngine.computeWeights(polyMesh.vertices, skeleton);
 
-    // Material definitions matching her attire in the reference sheet
+    // Material definitions matching her actual casual attire in the reference photos
     const materials: MaterialProperties[] = [
       {
         id: 'mat_skin',
-        name: 'Porcelain Skin',
+        name: 'Warm Porcelain Skin',
         type: 'PBR',
-        baseColor: '#fae3d5',
+        baseColor: '#fae2d4',
         roughness: 0.38,
         metallic: 0.0,
         normalScale: 0.6,
@@ -297,46 +304,46 @@ export class DefaultModelFactory {
         subsurface: 0.35,
       },
       {
-        id: 'mat_cream_knit',
-        name: 'Cream Ribbed Knit Top',
+        id: 'mat_white_tshirt',
+        name: 'White Crew-Neck T-Shirt',
         type: 'PBR',
-        baseColor: '#eee5d8',
+        baseColor: '#f7f8fa',
         roughness: 0.72,
-        metallic: 0.02,
-        normalScale: 1.2,
-        emissive: '#000000',
-        opacity: 1.0,
-      },
-      {
-        id: 'mat_pencil_skirt',
-        name: 'Charcoal Pencil Skirt',
-        type: 'PBR',
-        baseColor: '#282b33',
-        roughness: 0.65,
-        metallic: 0.05,
-        normalScale: 0.9,
-        emissive: '#000000',
-        opacity: 1.0,
-      },
-      {
-        id: 'mat_stiletto_heels',
-        name: 'Black Stiletto Heels',
-        type: 'PBR',
-        baseColor: '#101216',
-        roughness: 0.18,
-        metallic: 0.15,
+        metallic: 0.0,
         normalScale: 0.8,
         emissive: '#000000',
         opacity: 1.0,
       },
       {
-        id: 'mat_brunette_hair',
-        name: 'Dark Brunette Hair Bun',
+        id: 'mat_blue_jeans',
+        name: 'Slim Blue Denim Jeans',
         type: 'PBR',
-        baseColor: '#2b1f1a',
-        roughness: 0.35,
-        metallic: 0.08,
-        normalScale: 1.4,
+        baseColor: '#2d4d7a',
+        roughness: 0.76,
+        metallic: 0.02,
+        normalScale: 1.1,
+        emissive: '#000000',
+        opacity: 1.0,
+      },
+      {
+        id: 'mat_sneakers',
+        name: 'White Athletic Sneakers',
+        type: 'PBR',
+        baseColor: '#ffffff',
+        roughness: 0.38,
+        metallic: 0.05,
+        normalScale: 0.7,
+        emissive: '#000000',
+        opacity: 1.0,
+      },
+      {
+        id: 'mat_caramel_hair',
+        name: 'Wavy Caramel Hair',
+        type: 'PBR',
+        baseColor: '#966743',
+        roughness: 0.42,
+        metallic: 0.05,
+        normalScale: 1.3,
         emissive: '#000000',
         opacity: 1.0,
       },
@@ -360,26 +367,26 @@ export class DefaultModelFactory {
       skinWeights: skinning.skinWeights,
     };
 
-    // Cream Knit Top layer
-    const topVerts = new Float32Array(polyMesh.vertices.length);
+    // White Cotton T-Shirt layer
+    const tshirtVerts = new Float32Array(polyMesh.vertices.length);
     for (let i = 0; i < polyMesh.vertices.length; i += 3) {
       const y = polyMesh.vertices[i + 1];
-      const factor = (y > 1.0 && y < 1.45) ? 1.025 : 1.0;
-      topVerts[i] = polyMesh.vertices[i] * factor;
-      topVerts[i + 1] = polyMesh.vertices[i + 1];
-      topVerts[i + 2] = polyMesh.vertices[i + 2] * factor;
+      const factor = (y > 1.02 && y < 1.48) ? 1.025 : 1.0;
+      tshirtVerts[i] = polyMesh.vertices[i] * factor;
+      tshirtVerts[i + 1] = polyMesh.vertices[i + 1];
+      tshirtVerts[i + 2] = polyMesh.vertices[i + 2] * factor;
     }
 
-    const topLayer: MeshLayer = {
-      id: 'layer_knit_top',
-      name: 'Cream Knit Top',
+    const tshirtLayer: MeshLayer = {
+      id: 'layer_tshirt',
+      name: 'White Crew-Neck T-Shirt',
       type: 'clothing',
       visible: true,
       wireframe: false,
-      materialId: 'mat_cream_knit',
-      vertexCount: topVerts.length / 3,
+      materialId: 'mat_white_tshirt',
+      vertexCount: tshirtVerts.length / 3,
       triangleCount: polyMesh.indices.length / 3,
-      vertices: topVerts,
+      vertices: tshirtVerts,
       normals: polyMesh.normals,
       uvs,
       indices: polyMesh.indices,
@@ -387,26 +394,26 @@ export class DefaultModelFactory {
       skinWeights: skinning.skinWeights,
     };
 
-    // Charcoal Pencil Skirt layer
-    const skirtVerts = new Float32Array(polyMesh.vertices.length);
+    // Slim Blue Denim Jeans layer
+    const jeansVerts = new Float32Array(polyMesh.vertices.length);
     for (let i = 0; i < polyMesh.vertices.length; i += 3) {
       const y = polyMesh.vertices[i + 1];
-      const factor = (y > 0.55 && y <= 1.05) ? 1.03 : 1.0;
-      skirtVerts[i] = polyMesh.vertices[i] * factor;
-      skirtVerts[i + 1] = polyMesh.vertices[i + 1];
-      skirtVerts[i + 2] = polyMesh.vertices[i + 2] * factor;
+      const factor = (y > 0.12 && y <= 1.05) ? 1.025 : 1.0;
+      jeansVerts[i] = polyMesh.vertices[i] * factor;
+      jeansVerts[i + 1] = polyMesh.vertices[i + 1];
+      jeansVerts[i + 2] = polyMesh.vertices[i + 2] * factor;
     }
 
-    const skirtLayer: MeshLayer = {
-      id: 'layer_pencil_skirt',
-      name: 'Charcoal Pencil Skirt',
+    const jeansLayer: MeshLayer = {
+      id: 'layer_blue_jeans',
+      name: 'Slim Blue Denim Jeans',
       type: 'clothing',
       visible: true,
       wireframe: false,
-      materialId: 'mat_pencil_skirt',
-      vertexCount: skirtVerts.length / 3,
+      materialId: 'mat_blue_jeans',
+      vertexCount: jeansVerts.length / 3,
       triangleCount: polyMesh.indices.length / 3,
-      vertices: skirtVerts,
+      vertices: jeansVerts,
       normals: polyMesh.normals,
       uvs,
       indices: polyMesh.indices,
@@ -414,23 +421,23 @@ export class DefaultModelFactory {
       skinWeights: skinning.skinWeights,
     };
 
-    // Hair Bun layer
+    // Wavy Caramel Hair layer (flowing over shoulders)
     const hairVerts = new Float32Array(polyMesh.vertices.length);
     for (let i = 0; i < polyMesh.vertices.length; i += 3) {
       const y = polyMesh.vertices[i + 1];
-      const factor = y > 1.48 ? 1.05 : 1.0;
+      const factor = y > 1.35 ? 1.05 : 1.0;
       hairVerts[i] = polyMesh.vertices[i] * factor;
-      hairVerts[i + 1] = polyMesh.vertices[i + 1] + (y > 1.48 ? 0.03 : 0);
+      hairVerts[i + 1] = polyMesh.vertices[i + 1] + (y > 1.35 ? 0.02 : 0);
       hairVerts[i + 2] = polyMesh.vertices[i + 2] * factor;
     }
 
     const hairLayer: MeshLayer = {
-      id: 'layer_hair_bun',
-      name: 'Hair Bun & Strands',
+      id: 'layer_caramel_hair',
+      name: 'Wavy Caramel Hair',
       type: 'hair',
       visible: true,
       wireframe: false,
-      materialId: 'mat_brunette_hair',
+      materialId: 'mat_caramel_hair',
       vertexCount: hairVerts.length / 3,
       triangleCount: polyMesh.indices.length / 3,
       vertices: hairVerts,
@@ -441,23 +448,35 @@ export class DefaultModelFactory {
       skinWeights: skinning.skinWeights,
     };
 
-    const layers: MeshLayer[] = [bodyLayer, topLayer, skirtLayer, hairLayer];
+    const layers: MeshLayer[] = [bodyLayer, tshirtLayer, jeansLayer, hairLayer];
 
     // Collision Envelopes
     const collisionEnvelopes = CollisionSystem.createDefaultHumanoidEnvelopes();
 
-    // Cloth Simulation for Skirt
+    // Cloth Simulation for T-Shirt & Jeans
     const clothParams: ClothSimulationParams[] = [
       {
         enabled: true,
-        meshLayerId: 'layer_pencil_skirt',
-        stiffness: 0.88,
-        bend: 0.45,
-        stretch: 0.92,
+        meshLayerId: 'layer_tshirt',
+        stiffness: 0.82,
+        bend: 0.4,
+        stretch: 0.9,
         damping: 0.15,
         gravity: 9.81,
-        friction: 0.25,
+        friction: 0.2,
         collisionMargin: 0.015,
+        wind: [0, 0, 0],
+      },
+      {
+        enabled: true,
+        meshLayerId: 'layer_blue_jeans',
+        stiffness: 0.92,
+        bend: 0.55,
+        stretch: 0.95,
+        damping: 0.18,
+        gravity: 9.81,
+        friction: 0.3,
+        collisionMargin: 0.012,
         wind: [0, 0, 0],
       },
     ];
@@ -465,23 +484,23 @@ export class DefaultModelFactory {
     const hairParams: HairSimulationParams[] = [
       {
         enabled: true,
-        meshLayerId: 'layer_hair_bun',
-        stiffness: 0.75,
-        damping: 0.2,
+        meshLayerId: 'layer_caramel_hair',
+        stiffness: 0.72,
+        damping: 0.22,
         gravity: 9.81,
-        strandCount: 240,
+        strandCount: 320,
         collisionMargin: 0.01,
       },
     ];
 
-    // High-Heel Locomotion Sequence
+    // Natural Casual Walk Sequence
     const steps = [
-      { id: 'step_1', action: 'WALK' as const, duration: 2.5, parameters: { heelHeight: 0.1, cadence: 1.1 } },
-      { id: 'step_2', action: 'IDLE' as const, duration: 1.2 },
-      { id: 'step_3', action: 'CROUCH' as const, duration: 1.5, parameters: { depth: 0.3 } },
+      { id: 'step_1', action: 'WALK' as const, duration: 2.2, parameters: { strideLength: 0.65, cadence: 1.05 } },
+      { id: 'step_2', action: 'IDLE' as const, duration: 1.5 },
+      { id: 'step_3', action: 'CROUCH' as const, duration: 1.2, parameters: { depth: 0.25 } },
       { id: 'step_4', action: 'STAND' as const, duration: 0.8 },
     ];
-    const currentSequence = ActionSequencer.buildSequence('High Heel Elegance Walk', steps, true);
+    const currentSequence = ActionSequencer.buildSequence('Casual Campus Walk', steps, true);
 
     const qualityMetrics = QualityScorer.evaluateQuality(layers, skeleton, views, 0);
 
@@ -498,17 +517,17 @@ export class DefaultModelFactory {
         species: 'HUMANOID',
         symmetryPlane: 'YZ',
         features: [
-          { name: 'Head & High Bun', type: 'head', position: [0, 1.62, 0], size: [0.2, 0.26, 0.22], confidence: 0.99 },
-          { name: 'Ribbed Knit Top', type: 'torso', position: [0, 1.25, 0], size: [0.36, 0.28, 0.22], confidence: 0.98 },
-          { name: 'Belted Waist & Pencil Skirt', type: 'pelvis', position: [0, 0.85, 0], size: [0.34, 0.45, 0.24], confidence: 0.98 },
-          { name: 'High Heel Stiletto Pumps', type: 'toe', position: [0, 0.05, 0], size: [0.12, 0.1, 0.24], confidence: 0.97 },
+          { name: 'Head & Wavy Caramel Hair', type: 'head', position: [0, 1.62, 0], size: [0.22, 0.28, 0.24], confidence: 0.99 },
+          { name: 'White Crew-Neck T-Shirt', type: 'torso', position: [0, 1.25, 0], size: [0.38, 0.3, 0.24], confidence: 0.99 },
+          { name: 'Slim Blue Denim Jeans', type: 'pelvis', position: [0, 0.85, 0], size: [0.34, 0.52, 0.24], confidence: 0.98 },
+          { name: 'White Athletic Sneakers', type: 'toe', position: [0, 0.05, 0], size: [0.12, 0.08, 0.26], confidence: 0.98 },
         ],
         limbCount: 4,
         hasTail: false,
         hasWings: false,
         hasFins: false,
         fingerCountPerHand: 5,
-        confidenceScore: 98,
+        confidenceScore: 99,
       },
       skeleton,
       layers,
@@ -520,6 +539,7 @@ export class DefaultModelFactory {
       qualityMetrics,
       historySnapshots: [],
       currentVersion: 1,
+      automaticUnderstanding: AutomaticUnderstandingEngine.analyze(views),
     };
   }
 }

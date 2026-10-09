@@ -37,7 +37,7 @@ export const ViewportCanvas: React.FC = () => {
     activeViewSlot,
   } = useStudio();
 
-  const [showOverlay, setShowOverlay] = useState<boolean>(true);
+  const [showOverlay, setShowOverlay] = useState<boolean>(false);
   const [activeGizmo, setActiveGizmo] = useState<'SELECT' | 'MOVE' | 'ROTATE' | 'SCALE'>('SELECT');
 
   // Initialize ViewportController
@@ -111,7 +111,7 @@ export const ViewportCanvas: React.FC = () => {
   };
 
   return (
-    <div className="relative flex-1 h-[calc(100vh-3.5rem)] bg-slate-950 overflow-hidden">
+    <div className="relative flex-1 h-full min-h-0 min-w-0 bg-slate-950 overflow-hidden">
       {/* 3D WebGL Canvas Container */}
       <div ref={containerRef} className="w-full h-full" />
 

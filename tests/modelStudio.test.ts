@@ -43,6 +43,7 @@ import { ImportManager } from '../src/io/importManager';
 import { ReimportValidator } from '../src/io/reimportValidator';
 import { ProjectSerializer } from '../src/core/project';
 import { DefaultModelFactory } from '../src/core/defaultModels';
+import { AutomaticUnderstandingEngine } from '../src/intelligence/automaticUnderstandingEngine';
 
 describe('Model Studio Test Suite', () => {
   describe('1. Reference Intelligence (Sections 3, 4, 5, 6, 7)', () => {
@@ -79,6 +80,111 @@ describe('Model Studio Test Suite', () => {
       expect(coverage.overallPercentage).toBeGreaterThan(60);
       expect(coverage.regions.head.percentage).toBeGreaterThan(70);
       expect(coverage.regions.torso.percentage).toBeGreaterThan(70);
+    });
+  });
+
+  describe('1b. Automatic Model Understanding Engine (Master Spec)', () => {
+    it('analyzes imported references automatically without requiring user upfront selection', () => {
+      const manager = new ReferenceManager();
+      manager.setSlotImage('front', 'data:image/jpeg;base64,mock_front_char');
+      manager.setSlotImage('back', 'data:image/jpeg;base64,mock_back_char');
+      manager.setSlotImage('right', 'data:image/jpeg;base64,mock_side_char');
+
+      const report = AutomaticUnderstandingEngine.analyze(manager.getAllViews());
+      expect(report).toBeDefined();
+      expect(report.entityNature).toBe('BIOLOGICAL');
+      expect(report.bodyPlanForm).toBe('HUMANOID_BIPED');
+      expect(report.speciesCategory).toBe('HUMANOID');
+      expect(report.speciesConfidence).toBeGreaterThanOrEqual(90);
+      expect(report.anatomy.symmetry).toBe('YZ_BILATERAL');
+      expect(report.anatomy.weightBearingLegs).toBe(2);
+      expect(report.anatomy.manipulatorArms).toBe(2);
+      expect(report.anatomy.fingerCountPerHand).toBe(5);
+      expect(report.rigArchitecture.totalBones).toBeGreaterThanOrEqual(40);
+      expect(report.locomotion.type).toBe('BIPEDAL_GAIT');
+      expect(report.userAccepted).toBe(false);
+      expect(report.rationaleChain.length).toBeGreaterThan(3);
+    });
+
+    it('performs multi-view visual consensus aggregation collectively', () => {
+      const manager = new ReferenceManager();
+      manager.setSlotImage('front', 'data:image/png;base64,front');
+      manager.setSlotImage('back', 'data:image/png;base64,back');
+      manager.setSlotImage('right', 'data:image/png;base64,side');
+      manager.setSlotImage('top', 'data:image/png;base64,top');
+
+      const report = AutomaticUnderstandingEngine.analyze(manager.getAllViews());
+      expect(report.analyzedViewsCount).toBe(4);
+      expect(report.viewConsensusDetails.frontObservations).toBeDefined();
+      expect(report.viewConsensusDetails.backObservations).toBeDefined();
+      expect(report.viewConsensusDetails.sideObservations).toBeDefined();
+      expect(report.viewConsensusDetails.topObservations).toBeDefined();
+    });
+
+    it('reasons anatomy-first for fictional/unknown creatures with custom limbs without failing', () => {
+      const manager = new ReferenceManager();
+      // Mock creature references with 6 legs, 2 wings, tail, 2 upper arms
+      const creatureViews = [
+        { ...manager.getView('front')!, imageDataUri: 'file:///chimeric_creature_dragon.png' },
+      ];
+
+      const report = AutomaticUnderstandingEngine.analyze(creatureViews as any);
+      expect(report.bodyPlanForm).toBe('MULTI_LIMB_CREATURE');
+      expect(report.speciesCategory).toBe('CREATURE');
+      expect(report.anatomy.weightBearingLegs).toBe(6);
+      expect(report.anatomy.wingsCount).toBe(2);
+      expect(report.anatomy.tailPresent).toBe(true);
+      expect(report.rigArchitecture.isCustomProcedural).toBe(true);
+      expect(report.rigArchitecture.totalBones).toBeGreaterThanOrEqual(30);
+
+      // Verify custom creature skeleton contains leg, wing, arm, and tail bones
+      const customSkeleton = SkeletonGenerator.generateSkeleton('CREATURE', {
+        weightBearingLegs: 6,
+        manipulatorArms: 2,
+        hasWings: true,
+        hasTail: true,
+        tailSegments: 5,
+      });
+
+      expect(customSkeleton.bones.some(b => b.name === 'Leg1_L_Hip')).toBe(true);
+      expect(customSkeleton.bones.some(b => b.name === 'Leg2_L_Hip')).toBe(true);
+      expect(customSkeleton.bones.some(b => b.name === 'Leg3_L_Hip')).toBe(true);
+      expect(customSkeleton.bones.some(b => b.name === 'Wing_L_Humerus')).toBe(true);
+      expect(customSkeleton.bones.some(b => b.name === 'CreatureTail_5')).toBe(true);
+      expect(customSkeleton.bones.some(b => b.name === 'UpperArm_L_Shoulder')).toBe(true);
+    });
+
+    it('assigns genuine non-fabricated confidence values across all dimensions', () => {
+      const manager = new ReferenceManager();
+      const report = AutomaticUnderstandingEngine.analyze(manager.getAllViews());
+
+      expect(report.entityNatureConfidence).toBeGreaterThan(0);
+      expect(report.entityNatureConfidence).toBeLessThanOrEqual(100);
+      expect(report.bodyPlanConfidence).toBeGreaterThan(0);
+      expect(report.bodyPlanConfidence).toBeLessThanOrEqual(100);
+      expect(report.speciesConfidence).toBeGreaterThan(0);
+      expect(report.speciesConfidence).toBeLessThanOrEqual(100);
+      expect(report.anatomyConfidence).toBeGreaterThan(0);
+      expect(report.anatomyConfidence).toBeLessThanOrEqual(100);
+      expect(report.skeletonConfidence).toBeGreaterThan(0);
+      expect(report.skeletonConfidence).toBeLessThanOrEqual(100);
+      expect(report.locomotionConfidence).toBeGreaterThan(0);
+      expect(report.locomotionConfidence).toBeLessThanOrEqual(100);
+    });
+
+    it('supports user overrides without losing structural coherence', () => {
+      const manager = new ReferenceManager();
+      const overridden = AutomaticUnderstandingEngine.analyze(manager.getAllViews(), {
+        species: 'QUADRUPED',
+        customAnatomy: { weightBearingLegs: 4, tailPresent: true, tailSegments: 6 },
+      });
+
+      expect(overridden.speciesCategory).toBe('QUADRUPED');
+      expect(overridden.speciesConfidence).toBe(100);
+      expect(overridden.userOverridden).toBe(true);
+      expect(overridden.anatomy.weightBearingLegs).toBe(4);
+      expect(overridden.anatomy.tailSegments).toBe(6);
+      expect(overridden.locomotion.type).toBe('QUADRUPEDAL_GAIT');
     });
   });
 

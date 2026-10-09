@@ -50,13 +50,39 @@ export class SheetAnalyzer {
 
       const panelWidth = 1.0 / count;
       for (let i = 0; i < count; i++) {
+        let extractedDataUri = imageUri;
+        const box = { x: i * panelWidth, y: 0.05, width: panelWidth * 0.95, height: 0.9 };
+
+        if (imgElement && isBrowser) {
+          try {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              const sx = Math.max(0, Math.round(box.x * imgElement.naturalWidth));
+              const sy = Math.max(0, Math.round(box.y * imgElement.naturalHeight));
+              const sw = Math.min(imgElement.naturalWidth - sx, Math.round(box.width * imgElement.naturalWidth));
+              const sh = Math.min(imgElement.naturalHeight - sy, Math.round(box.height * imgElement.naturalHeight));
+              if (sw > 0 && sh > 0) {
+                canvas.width = sw;
+                canvas.height = sh;
+                ctx.drawImage(imgElement, sx, sy, sw, sh, 0, 0, sw, sh);
+                extractedDataUri = canvas.toDataURL('image/jpeg', 0.92);
+              }
+            }
+          } catch (e) {
+            // fallback
+          }
+        } else if (imageUri.startsWith('data:image/svg+xml') || imageUri.startsWith('mock_')) {
+          extractedDataUri = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="500" viewBox="0 0 300 500"><rect width="100%" height="100%" fill="%230f172a"/><text x="150" y="240" fill="%2338bdf8" font-family="sans-serif" font-size="18" text-anchor="middle" font-weight="bold">${(viewSequence[i] || 'VIEW').toUpperCase()}</text></svg>`;
+        }
+
         panels.push({
           id: `panel_${i}`,
           label: `Panel ${i + 1}`,
-          box: { x: i * panelWidth, y: 0.05, width: panelWidth * 0.95, height: 0.9 },
+          box,
           predictedView: viewSequence[i] || 'custom',
           confidence: 0.88 - i * 0.02,
-          extractedDataUri: imageUri,
+          extractedDataUri,
         });
       }
       return panels;

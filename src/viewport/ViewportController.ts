@@ -53,6 +53,7 @@ export class ViewportController {
 
   private animationFrameId: number | null = null;
   private lastTimestamp: number = 0;
+  private resizeObserver: ResizeObserver | null = null;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -108,6 +109,12 @@ export class ViewportController {
 
     // 9. Resize Listener
     window.addEventListener('resize', this.onResize);
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(() => {
+        this.onResize();
+      });
+      this.resizeObserver.observe(this.container);
+    }
 
     // 10. Start Animation Loop
     this.lastTimestamp = performance.now();
@@ -411,6 +418,10 @@ export class ViewportController {
   dispose(): void {
     if (this.animationFrameId !== null) {
       cancelAnimationFrame(this.animationFrameId);
+    }
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
     }
     window.removeEventListener('resize', this.onResize);
     this.renderer.dispose();

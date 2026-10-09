@@ -12,6 +12,8 @@ import { BottomPanel } from './BottomPanel';
 import { QualityModal } from './modals/QualityModal';
 import { ExportModal } from './modals/ExportModal';
 import { JobQueueDrawer } from './modals/JobQueueDrawer';
+import { UnderstandingModal } from './modals/UnderstandingModal';
+import { DiagnosticsModal } from './modals/DiagnosticsModal';
 
 export const StudioLayout: React.FC = () => {
   return (
@@ -19,9 +21,9 @@ export const StudioLayout: React.FC = () => {
       {/* Studio Top Navigation & Global Controls */}
       <TopBar />
 
-      {/* Primary Workspace (Left References + Viewport + Right Inspector) */}
-      <div className="flex flex-1 overflow-hidden relative">
-        {/* Left Reference Intake */}
+      {/* Primary Workspace (Left Outliner + 3D Viewport + Right Inspector) */}
+      <div className="flex flex-1 overflow-hidden relative min-h-0 min-w-0">
+        {/* Left Outliner / Assets */}
         <LeftPanel />
 
         {/* Center Interactive 3D WebGL Viewport */}
@@ -31,13 +33,15 @@ export const StudioLayout: React.FC = () => {
         <RightInspector />
       </div>
 
-      {/* Bottom Timeline & NLP Animation Command Box */}
+      {/* Bottom Timeline & Animation Controls */}
       <BottomPanel />
 
       {/* Modals & Drawers */}
       <QualityModal />
       <ExportModal />
       <JobQueueDrawer />
+      <UnderstandingModal />
+      <DiagnosticsModal />
     </div>
   );
 };

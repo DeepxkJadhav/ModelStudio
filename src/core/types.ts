@@ -19,6 +19,132 @@ export type SpeciesCategory =
   | 'OBJECT'
   | 'CUSTOM';
 
+export type EntityNature = 'BIOLOGICAL' | 'MECHANICAL' | 'HYBRID' | 'INORGANIC';
+
+export type BodyPlanForm =
+  | 'HUMANOID_BIPED'
+  | 'QUADRUPED'
+  | 'HEXAPOD'
+  | 'OCTOPOD'
+  | 'AVIAN'
+  | 'SERPENTINE'
+  | 'AQUATIC'
+  | 'MULTI_LIMB_CREATURE'
+  | 'MECHANICAL_ROBOTIC'
+  | 'OBJECT_RIGID'
+  | 'CUSTOM_UNKNOWN';
+
+export type LocomotionType =
+  | 'BIPEDAL_GAIT'
+  | 'QUADRUPEDAL_GAIT'
+  | 'SERPENTINE_SLITHER'
+  | 'AVIAN_FLIGHT'
+  | 'AQUATIC_SWIM'
+  | 'HEXAPOD_TRIPOD_GAIT'
+  | 'OCTOPOD_CRAWL'
+  | 'MECHANICAL_WHEELED'
+  | 'HOVERING'
+  | 'STATIC';
+
+export type DeformationStrategy =
+  | 'DUAL_QUATERNION_LBS'
+  | 'LINEAR_BLEND_SKINNING'
+  | 'SPLINE_CURVE_DEFORM'
+  | 'TENTACLE_SPRING_DEFORM'
+  | 'RIGID_SEGMENTED';
+
+export type PhysicsStrategy =
+  | 'VERLET_CLOTH_HAIR'
+  | 'INERTIAL_STRANDS'
+  | 'SECONDARY_APPENDAGE_JIGGLE'
+  | 'RIGID_BODY_COLLIDERS'
+  | 'NONE';
+
+export type StudioWorkflowMode = 'MODEL' | 'RIG' | 'ANIMATE' | 'MATERIALS' | 'PHYSICS';
+
+export interface ArticulatedStructureItem {
+  id: string;
+  name: string;
+  type: string;
+  jointType: 'HINGE' | 'BALL_AND_SOCKET' | 'PLANAR' | 'SLIDING' | 'SPLINE';
+  position: [number, number, number];
+  size: [number, number, number];
+  confidence: number;
+  evidence: EvidenceStatus;
+}
+
+export interface AutomaticUnderstandingReport {
+  timestamp: number;
+  entityNature: EntityNature;
+  entityNatureConfidence: number; // 0-100
+  bodyPlanForm: BodyPlanForm;
+  bodyPlanConfidence: number; // 0-100
+  speciesCategory: SpeciesCategory;
+  speciesConfidence: number; // 0-100
+
+  // Multi-view consensus summary
+  analyzedViewsCount: number;
+  viewConsensusDetails: {
+    frontObservations?: string[];
+    backObservations?: string[];
+    sideObservations?: string[];
+    topObservations?: string[];
+    threeQuarterObservations?: string[];
+  };
+
+  // Anatomical breakdown
+  anatomy: {
+    spineOrientation: 'VERTICAL_Y' | 'HORIZONTAL_Z' | 'CURVED_SERPENTINE' | 'RADIAL';
+    spineSegments: number;
+    limbCount: number;
+    weightBearingLegs: number;
+    manipulatorArms: number;
+    wingsCount: number;
+    finsCount: number;
+    tentaclesCount: number;
+    headPresent: boolean;
+    headType?: string;
+    tailPresent: boolean;
+    tailSegments?: number;
+    fingerCountPerHand: number;
+    symmetry: 'YZ_BILATERAL' | 'XZ_SYMMETRICAL' | 'RADIAL' | 'ASYMMETRICAL';
+    articulatedStructures: ArticulatedStructureItem[];
+  };
+  anatomyConfidence: number; // 0-100
+
+  // Skeleton Rig selection or custom synthesis
+  rigArchitecture: {
+    name: string;
+    isCustomProcedural: boolean;
+    totalBones: number;
+    ikChainsCount: number;
+    boneHierarchySummary: string;
+    jointLimitsConfigured: boolean;
+  };
+  skeletonConfidence: number; // 0-100
+
+  // Locomotion
+  locomotion: {
+    type: LocomotionType;
+    label: string;
+    gaitParameters: Record<string, any>;
+    footHandIKEnabled: boolean;
+  };
+  locomotionConfidence: number; // 0-100
+
+  // Deformation & Physics
+  deformationStrategy: DeformationStrategy;
+  deformationConfidence: number; // 0-100
+  physicsStrategy: PhysicsStrategy;
+  physicsConfidence: number; // 0-100
+
+  // Overall explanation
+  rationaleChain: string[];
+  userAccepted: boolean;
+  userOverridden: boolean;
+  userOverrideTimestamp?: number;
+}
+
 export type ReferenceViewType =
   | 'front'
   | 'back'
@@ -331,4 +457,5 @@ export interface StudioProject {
   qualityMetrics: QualityMetrics;
   historySnapshots: ProjectSnapshot[];
   currentVersion: number;
+  automaticUnderstanding?: AutomaticUnderstandingReport;
 }
