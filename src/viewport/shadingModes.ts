@@ -44,14 +44,23 @@ export class ShadingModeFactory {
           wireframe: true,
         });
 
-      case 'SOLID':
+      case 'SOLID': {
         // Clean studio clay / sculpting shade respecting anatomical component tints
+        const baseColorMap: Record<string, string> = {
+          mat_skin: '#fae3d5',
+          mat_hair: '#966743',
+          mat_tshirt: '#f8fafc',
+          mat_jeans: '#2c4f7c',
+          mat_sneakers: '#ffffff',
+        };
+        const solidColor = baseColorMap[matProps.id] || (matProps.baseColor !== '#ffffff' ? matProps.baseColor : '#cbd5e1');
         return new THREE.MeshStandardMaterial({
-          color: new THREE.Color(matProps.baseColor || '#cbd5e1'),
+          color: new THREE.Color(solidColor),
           roughness: 0.65,
           metalness: 0.05,
           wireframe: false,
         });
+      }
 
       case 'MATERIAL_PREVIEW':
       case 'RENDERED_PBR': {
