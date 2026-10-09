@@ -278,6 +278,7 @@ export interface MaterialProperties {
   rimLightIntensity?: number;
   outlineWidth?: number;
   outlineColor?: string;
+  textureUri?: string;
 }
 
 export interface MeshLayer {

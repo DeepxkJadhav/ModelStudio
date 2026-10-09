@@ -386,13 +386,22 @@ export const StudioStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const validation = backend.validate(result.mesh);
 
     setProject(prev => {
-      // Skinning weights
-      const skinning = AutoWeightingEngine.computeWeights(result.mesh.vertices, prev.skeleton);
-      const layersWithWeights = result.layers.map(l => ({
-        ...l,
-        skinIndices: skinning.skinIndices,
-        skinWeights: skinning.skinWeights,
-      }));
+      // Skinning weights per layer matching exact vertex count
+      const layersWithWeights = result.layers.map(l => {
+        const vCount = (l.vertices instanceof Float32Array ? l.vertices.length : Object.keys(l.vertices).length) / 3;
+        if (l.skinIndices && l.skinWeights && l.skinIndices.length === vCount * 4) {
+          return l;
+        }
+        const layerSkinning = AutoWeightingEngine.computeWeights(
+          l.vertices instanceof Float32Array ? l.vertices : new Float32Array(l.vertices),
+          prev.skeleton
+        );
+        return {
+          ...l,
+          skinIndices: layerSkinning.skinIndices,
+          skinWeights: layerSkinning.skinWeights,
+        };
+      });
 
       const qualityMetrics = QualityScorer.evaluateQuality(layersWithWeights, prev.skeleton, prev.referenceViews);
       const next = { ...prev, layers: layersWithWeights, qualityMetrics };

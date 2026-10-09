@@ -11,6 +11,8 @@ import { UVGenerator } from './uvGenerator';
 import { SilhouetteExtractor } from '../references/silhouetteExtractor';
 import { GLTFExporter } from '../io/gltfExporter';
 import { OBJExporter } from '../io/objExporter';
+import { SkeletonGenerator } from '../rigging/skeletonGenerator';
+import { HighFidelityModelGenerator } from './highFidelityModelGenerator';
 
 export interface ReferenceAnalysisResult {
   detectedViewsCount: number;
@@ -121,7 +123,37 @@ export class LocalVolumetricReconstructionBackend implements IReconstructionBack
       settings.resolution ||
       (preset === 'ULTRA' ? 36 : preset === 'HIGH' ? 32 : preset === 'DRAFT' ? 24 : 28);
 
-    // 1. Generate full 3D signed distance field constrained by multi-view silhouettes
+    // For HUMANOID, construct high-fidelity non-overlapping anatomical layers
+    if (species === 'HUMANOID') {
+      const frontUri = references.find(r => r.type === 'front' && r.imageDataUri)?.imageDataUri || '/references/front.png';
+      const sideUri = references.find(r => (r.type === 'left' || r.type === 'right') && r.imageDataUri)?.imageDataUri || '/references/side.png';
+      const backUri = references.find(r => r.type === 'back' && r.imageDataUri)?.imageDataUri || '/references/back.png';
+      const topUri = references.find(r => r.type === 'top' && r.imageDataUri)?.imageDataUri || '/references/top.png';
+      const bottomUri = references.find(r => r.type === 'bottom' && r.imageDataUri)?.imageDataUri || '/references/bottom.png';
+
+      const skeleton = SkeletonGenerator.generateSkeleton('HUMANOID');
+      const generated = HighFidelityModelGenerator.buildTurnaroundCharacterModel(skeleton, {
+        front: frontUri,
+        side: sideUri,
+        back: backUri,
+        top: topUri,
+        bottom: bottomUri,
+      });
+
+      const processingTimeMs = Math.round(performance.now() - startTime);
+
+      return {
+        mesh: generated.compositeMesh,
+        layers: generated.layers,
+        dimensions: generated.boundingDimensions,
+        triangleCount: generated.totalTriangles,
+        vertexCount: generated.totalVertices,
+        processingTimeMs,
+        backendUsed: this.backendName,
+      };
+    }
+
+    // 1. Generate full 3D signed distance field constrained by multi-view silhouettes for non-humanoid species
     const grid = VisualHullReconstructor.generateDensityField(species, references, resolution);
 
     // 2. Extract genuine watertight polygon mesh using 256-case Marching Cubes
@@ -170,59 +202,7 @@ export class LocalVolumetricReconstructionBackend implements IReconstructionBack
     layers.push(bodyLayer);
 
     if (settings.generateLayers !== false) {
-      if (species === 'HUMANOID') {
-        // T-Shirt & Jeans Layers
-        const clothVerts = new Float32Array(mesh.vertices.length);
-        for (let i = 0; i < mesh.vertices.length; i += 3) {
-          const y = mesh.vertices[i + 1];
-          const isClothingArea = y >= 0.15 && y <= 1.48;
-          const factor = isClothingArea ? 1.025 : 1.0;
-          clothVerts[i] = mesh.vertices[i] * factor;
-          clothVerts[i + 1] = mesh.vertices[i + 1];
-          clothVerts[i + 2] = mesh.vertices[i + 2] * factor;
-        }
-
-        layers.push({
-          id: 'layer_clothing',
-          name: 'Casual Apparel',
-          type: 'clothing',
-          visible: true,
-          wireframe: false,
-          materialId: 'mat_white_tshirt',
-          vertexCount: clothVerts.length / 3,
-          triangleCount: mesh.indices.length / 3,
-          vertices: clothVerts,
-          normals: mesh.normals,
-          uvs: mesh.uvs,
-          indices: mesh.indices,
-        });
-
-        // Hair Layer
-        const hairVerts = new Float32Array(mesh.vertices.length);
-        for (let i = 0; i < mesh.vertices.length; i += 3) {
-          const y = mesh.vertices[i + 1];
-          const isHairArea = y >= 1.35;
-          const factor = isHairArea ? 1.05 : 1.0;
-          hairVerts[i] = mesh.vertices[i] * factor;
-          hairVerts[i + 1] = mesh.vertices[i + 1] + (isHairArea ? 0.02 : 0);
-          hairVerts[i + 2] = mesh.vertices[i + 2] * factor;
-        }
-
-        layers.push({
-          id: 'layer_hair',
-          name: 'Wavy Hair Layer',
-          type: 'hair',
-          visible: true,
-          wireframe: false,
-          materialId: 'mat_caramel_hair',
-          vertexCount: hairVerts.length / 3,
-          triangleCount: mesh.indices.length / 3,
-          vertices: hairVerts,
-          normals: mesh.normals,
-          uvs: mesh.uvs,
-          indices: mesh.indices,
-        });
-      } else if (species === 'QUADRUPED') {
+      if (species === 'QUADRUPED') {
         // Coat / Fur Layer
         const furVerts = new Float32Array(mesh.vertices.length);
         for (let i = 0; i < mesh.vertices.length; i += 3) {

@@ -24,6 +24,7 @@ import { VisualHullReconstructor } from '../reconstruction/visualHull';
 import { MarchingCubesPolygonizer } from '../reconstruction/marchingCubes';
 import { UVGenerator } from '../reconstruction/uvGenerator';
 import { AutomaticUnderstandingEngine } from '../intelligence/automaticUnderstandingEngine';
+import { HighFidelityModelGenerator } from '../reconstruction/highFidelityModelGenerator';
 
 export class DefaultModelFactory {
   static createDefaultProject(species: SpeciesCategory = 'HUMANOID'): StudioProject {
@@ -34,90 +35,39 @@ export class DefaultModelFactory {
     // 1. Generate skeleton for species
     const skeleton = SkeletonGenerator.generateSkeleton(species);
 
-    // 2. Generate implicit density field and extract genuine surface mesh
-    const grid = VisualHullReconstructor.generateDensityField(species, views, 28);
-    const polyMesh = MarchingCubesPolygonizer.extractSurface(grid, 0.0);
-    const uvs = UVGenerator.generateUVs(polyMesh.vertices);
+    let layers: MeshLayer[];
+    let materials: MaterialProperties[];
 
-    // Compute skinning weights
-    const skinning = AutoWeightingEngine.computeWeights(polyMesh.vertices, skeleton);
+    if (species === 'HUMANOID') {
+      const generated = HighFidelityModelGenerator.buildTurnaroundCharacterModel(skeleton);
+      layers = generated.layers;
+      materials = generated.materials;
+    } else {
+      // 2. Generate implicit density field and extract genuine surface mesh for non-humanoids
+      const grid = VisualHullReconstructor.generateDensityField(species, views, 28);
+      const polyMesh = MarchingCubesPolygonizer.extractSurface(grid, 0.0);
+      const uvs = UVGenerator.generateUVs(polyMesh.vertices);
+      const skinning = AutoWeightingEngine.computeWeights(polyMesh.vertices, skeleton);
+      materials = MaterialGenerator.generateDefaultPalette(false);
 
-    // 3. Build multi-layer meshes (Body, Clothing, Hair)
-    const materials = MaterialGenerator.generateDefaultPalette(false);
-
-    // Body Layer
-    const bodyLayer: MeshLayer = {
-      id: 'layer_body',
-      name: 'Body',
-      type: 'body',
-      visible: true,
-      wireframe: false,
-      materialId: 'mat_body',
-      vertexCount: polyMesh.vertices.length / 3,
-      triangleCount: polyMesh.indices.length / 3,
-      vertices: polyMesh.vertices,
-      normals: polyMesh.normals,
-      uvs,
-      indices: polyMesh.indices,
-      skinIndices: skinning.skinIndices,
-      skinWeights: skinning.skinWeights,
-    };
-
-    // Clothing Layer (Garment overlay with slight offset)
-    const clothVerts = new Float32Array(polyMesh.vertices.length);
-    for (let i = 0; i < polyMesh.vertices.length; i += 3) {
-      const y = polyMesh.vertices[i + 1];
-      const factor = (y > 0.8 && y < 1.4) ? 1.025 : 1.0;
-      clothVerts[i] = polyMesh.vertices[i] * factor;
-      clothVerts[i + 1] = polyMesh.vertices[i + 1];
-      clothVerts[i + 2] = polyMesh.vertices[i + 2] * factor;
+      const bodyLayer: MeshLayer = {
+        id: 'layer_body',
+        name: 'Body',
+        type: 'body',
+        visible: true,
+        wireframe: false,
+        materialId: 'mat_body',
+        vertexCount: polyMesh.vertices.length / 3,
+        triangleCount: polyMesh.indices.length / 3,
+        vertices: polyMesh.vertices,
+        normals: polyMesh.normals,
+        uvs,
+        indices: polyMesh.indices,
+        skinIndices: skinning.skinIndices,
+        skinWeights: skinning.skinWeights,
+      };
+      layers = [bodyLayer];
     }
-
-    const clothLayer: MeshLayer = {
-      id: 'layer_clothing',
-      name: 'Clothing',
-      type: 'clothing',
-      visible: true,
-      wireframe: false,
-      materialId: 'mat_clothing',
-      vertexCount: clothVerts.length / 3,
-      triangleCount: polyMesh.indices.length / 3,
-      vertices: clothVerts,
-      normals: polyMesh.normals,
-      uvs,
-      indices: polyMesh.indices,
-      skinIndices: skinning.skinIndices,
-      skinWeights: skinning.skinWeights,
-    };
-
-    // Hair Layer (Crown strands)
-    const hairVerts = new Float32Array(polyMesh.vertices.length);
-    for (let i = 0; i < polyMesh.vertices.length; i += 3) {
-      const y = polyMesh.vertices[i + 1];
-      const factor = y > 1.45 ? 1.04 : 1.0;
-      hairVerts[i] = polyMesh.vertices[i] * factor;
-      hairVerts[i + 1] = polyMesh.vertices[i + 1] + (y > 1.45 ? 0.02 : 0);
-      hairVerts[i + 2] = polyMesh.vertices[i + 2] * factor;
-    }
-
-    const hairLayer: MeshLayer = {
-      id: 'layer_hair',
-      name: 'Hair',
-      type: 'hair',
-      visible: true,
-      wireframe: false,
-      materialId: 'mat_hair',
-      vertexCount: hairVerts.length / 3,
-      triangleCount: polyMesh.indices.length / 3,
-      vertices: hairVerts,
-      normals: polyMesh.normals,
-      uvs,
-      indices: polyMesh.indices,
-      skinIndices: skinning.skinIndices,
-      skinWeights: skinning.skinWeights,
-    };
-
-    const layers: MeshLayer[] = [bodyLayer, clothLayer, hairLayer];
 
     // 4. Cloth & Hair Simulation parameters
     const clothParams: ClothSimulationParams[] = [
@@ -283,172 +233,17 @@ export class DefaultModelFactory {
     // Humanoid skeleton calibrated for casual flat-sole sneaker posture
     const skeleton = SkeletonGenerator.generateSkeleton(species);
 
-    // Surface reconstruction
-    const grid = VisualHullReconstructor.generateDensityField(species, views, 30);
-    const polyMesh = MarchingCubesPolygonizer.extractSurface(grid, 0.0);
-    const uvs = UVGenerator.generateUVs(polyMesh.vertices);
-    const skinning = AutoWeightingEngine.computeWeights(polyMesh.vertices, skeleton);
+    // High-Fidelity Character Model Generation matching reference turnaround photos
+    const generated = HighFidelityModelGenerator.buildTurnaroundCharacterModel(skeleton, {
+      front: '/references/front.png',
+      side: '/references/side.png',
+      back: '/references/back.png',
+      top: '/references/top.png',
+      bottom: '/references/bottom.png',
+    });
 
-    // Material definitions matching her actual casual attire in the reference photos
-    const materials: MaterialProperties[] = [
-      {
-        id: 'mat_skin',
-        name: 'Warm Porcelain Skin',
-        type: 'PBR',
-        baseColor: '#fae2d4',
-        roughness: 0.38,
-        metallic: 0.0,
-        normalScale: 0.6,
-        emissive: '#000000',
-        opacity: 1.0,
-        subsurface: 0.35,
-      },
-      {
-        id: 'mat_white_tshirt',
-        name: 'White Crew-Neck T-Shirt',
-        type: 'PBR',
-        baseColor: '#f7f8fa',
-        roughness: 0.72,
-        metallic: 0.0,
-        normalScale: 0.8,
-        emissive: '#000000',
-        opacity: 1.0,
-      },
-      {
-        id: 'mat_blue_jeans',
-        name: 'Slim Blue Denim Jeans',
-        type: 'PBR',
-        baseColor: '#2d4d7a',
-        roughness: 0.76,
-        metallic: 0.02,
-        normalScale: 1.1,
-        emissive: '#000000',
-        opacity: 1.0,
-      },
-      {
-        id: 'mat_sneakers',
-        name: 'White Athletic Sneakers',
-        type: 'PBR',
-        baseColor: '#ffffff',
-        roughness: 0.38,
-        metallic: 0.05,
-        normalScale: 0.7,
-        emissive: '#000000',
-        opacity: 1.0,
-      },
-      {
-        id: 'mat_caramel_hair',
-        name: 'Wavy Caramel Hair',
-        type: 'PBR',
-        baseColor: '#966743',
-        roughness: 0.42,
-        metallic: 0.05,
-        normalScale: 1.3,
-        emissive: '#000000',
-        opacity: 1.0,
-      },
-    ];
-
-    // Multi-layer segmentation
-    const bodyLayer: MeshLayer = {
-      id: 'layer_body',
-      name: 'Body',
-      type: 'body',
-      visible: true,
-      wireframe: false,
-      materialId: 'mat_skin',
-      vertexCount: polyMesh.vertices.length / 3,
-      triangleCount: polyMesh.indices.length / 3,
-      vertices: polyMesh.vertices,
-      normals: polyMesh.normals,
-      uvs,
-      indices: polyMesh.indices,
-      skinIndices: skinning.skinIndices,
-      skinWeights: skinning.skinWeights,
-    };
-
-    // White Cotton T-Shirt layer
-    const tshirtVerts = new Float32Array(polyMesh.vertices.length);
-    for (let i = 0; i < polyMesh.vertices.length; i += 3) {
-      const y = polyMesh.vertices[i + 1];
-      const factor = (y > 1.02 && y < 1.48) ? 1.025 : 1.0;
-      tshirtVerts[i] = polyMesh.vertices[i] * factor;
-      tshirtVerts[i + 1] = polyMesh.vertices[i + 1];
-      tshirtVerts[i + 2] = polyMesh.vertices[i + 2] * factor;
-    }
-
-    const tshirtLayer: MeshLayer = {
-      id: 'layer_tshirt',
-      name: 'White Crew-Neck T-Shirt',
-      type: 'clothing',
-      visible: true,
-      wireframe: false,
-      materialId: 'mat_white_tshirt',
-      vertexCount: tshirtVerts.length / 3,
-      triangleCount: polyMesh.indices.length / 3,
-      vertices: tshirtVerts,
-      normals: polyMesh.normals,
-      uvs,
-      indices: polyMesh.indices,
-      skinIndices: skinning.skinIndices,
-      skinWeights: skinning.skinWeights,
-    };
-
-    // Slim Blue Denim Jeans layer
-    const jeansVerts = new Float32Array(polyMesh.vertices.length);
-    for (let i = 0; i < polyMesh.vertices.length; i += 3) {
-      const y = polyMesh.vertices[i + 1];
-      const factor = (y > 0.12 && y <= 1.05) ? 1.025 : 1.0;
-      jeansVerts[i] = polyMesh.vertices[i] * factor;
-      jeansVerts[i + 1] = polyMesh.vertices[i + 1];
-      jeansVerts[i + 2] = polyMesh.vertices[i + 2] * factor;
-    }
-
-    const jeansLayer: MeshLayer = {
-      id: 'layer_blue_jeans',
-      name: 'Slim Blue Denim Jeans',
-      type: 'clothing',
-      visible: true,
-      wireframe: false,
-      materialId: 'mat_blue_jeans',
-      vertexCount: jeansVerts.length / 3,
-      triangleCount: polyMesh.indices.length / 3,
-      vertices: jeansVerts,
-      normals: polyMesh.normals,
-      uvs,
-      indices: polyMesh.indices,
-      skinIndices: skinning.skinIndices,
-      skinWeights: skinning.skinWeights,
-    };
-
-    // Wavy Caramel Hair layer (flowing over shoulders)
-    const hairVerts = new Float32Array(polyMesh.vertices.length);
-    for (let i = 0; i < polyMesh.vertices.length; i += 3) {
-      const y = polyMesh.vertices[i + 1];
-      const factor = y > 1.35 ? 1.05 : 1.0;
-      hairVerts[i] = polyMesh.vertices[i] * factor;
-      hairVerts[i + 1] = polyMesh.vertices[i + 1] + (y > 1.35 ? 0.02 : 0);
-      hairVerts[i + 2] = polyMesh.vertices[i + 2] * factor;
-    }
-
-    const hairLayer: MeshLayer = {
-      id: 'layer_caramel_hair',
-      name: 'Wavy Caramel Hair',
-      type: 'hair',
-      visible: true,
-      wireframe: false,
-      materialId: 'mat_caramel_hair',
-      vertexCount: hairVerts.length / 3,
-      triangleCount: polyMesh.indices.length / 3,
-      vertices: hairVerts,
-      normals: polyMesh.normals,
-      uvs,
-      indices: polyMesh.indices,
-      skinIndices: skinning.skinIndices,
-      skinWeights: skinning.skinWeights,
-    };
-
-    const layers: MeshLayer[] = [bodyLayer, tshirtLayer, jeansLayer, hairLayer];
+    const layers = generated.layers;
+    const materials = generated.materials;
 
     // Collision Envelopes
     const collisionEnvelopes = CollisionSystem.createDefaultHumanoidEnvelopes();
@@ -469,7 +264,7 @@ export class DefaultModelFactory {
       },
       {
         enabled: true,
-        meshLayerId: 'layer_blue_jeans',
+        meshLayerId: 'layer_jeans',
         stiffness: 0.92,
         bend: 0.55,
         stretch: 0.95,
@@ -484,7 +279,7 @@ export class DefaultModelFactory {
     const hairParams: HairSimulationParams[] = [
       {
         enabled: true,
-        meshLayerId: 'layer_caramel_hair',
+        meshLayerId: 'layer_hair',
         stiffness: 0.72,
         damping: 0.22,
         gravity: 9.81,
