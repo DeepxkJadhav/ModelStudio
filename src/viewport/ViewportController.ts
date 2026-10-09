@@ -40,6 +40,12 @@ export class ViewportController {
   private layers: MeshLayer[] = [];
   private materials: MaterialProperties[] = [];
   private skeleton: SkeletonDefinition | null = null;
+  private threeSkeleton: THREE.Skeleton | null = null;
+  private rootBone: THREE.Bone | null = null;
+  private boneMap = new Map<string, THREE.Bone>();
+  private jointMeshMap = new Map<string, THREE.Mesh>();
+  private skeletonLineMesh: THREE.LineSegments | null = null;
+  private boneParentPairs: Array<{ child: string; parent: string }> = [];
   private collisionEnvelopes: CollisionEnvelope[] = [];
   private actionSequence: ActionSequence | null = null;
 
@@ -170,11 +176,55 @@ export class ViewportController {
     this.materials = materials;
     if (skeleton) this.skeleton = skeleton;
 
-    // Clear old model meshes
+    // Clear old model meshes and skeleton roots
     while (this.modelGroup.children.length > 0) {
-      const obj = this.modelGroup.children[0] as THREE.Mesh;
-      if (obj.geometry) obj.geometry.dispose();
+      const obj = this.modelGroup.children[0];
+      if ((obj as THREE.Mesh).geometry) (obj as THREE.Mesh).geometry.dispose();
       this.modelGroup.remove(obj);
+    }
+
+    this.boneMap.clear();
+    this.threeSkeleton = null;
+    this.rootBone = null;
+
+    if (this.skeleton && this.skeleton.bones.length > 0) {
+      const bones = this.skeleton.bones;
+      const threeBones: THREE.Bone[] = [];
+
+      bones.forEach(b => {
+        const tb = new THREE.Bone();
+        tb.name = b.name;
+        this.boneMap.set(b.name, tb);
+        threeBones.push(tb);
+      });
+
+      let rootBoneInstance: THREE.Bone | null = null;
+      const boneDefMap = new Map(bones.map(b => [b.name, b]));
+      bones.forEach(b => {
+        const tb = this.boneMap.get(b.name)!;
+        if (!b.parentName) {
+          rootBoneInstance = tb;
+          this.rootBone = tb;
+          tb.position.set(b.position[0], b.position[1], b.position[2]);
+        } else {
+          const parentDef = boneDefMap.get(b.parentName);
+          const parentTb = this.boneMap.get(b.parentName);
+          if (parentDef && parentTb) {
+            tb.position.set(
+              b.position[0] - parentDef.position[0],
+              b.position[1] - parentDef.position[1],
+              b.position[2] - parentDef.position[2]
+            );
+            parentTb.add(tb);
+          }
+        }
+      });
+
+      if (rootBoneInstance) {
+        this.modelGroup.add(rootBoneInstance);
+        (rootBoneInstance as THREE.Bone).updateMatrixWorld(true);
+        this.threeSkeleton = new THREE.Skeleton(threeBones);
+      }
     }
 
     layers.forEach(layer => {
@@ -199,13 +249,32 @@ export class ViewportController {
       };
 
       const mat = ShadingModeFactory.createMaterialForMode(this.shadingMode, matProps);
-      const mesh = new THREE.Mesh(geometry, mat);
+
+      let mesh: THREE.Mesh;
+      if (
+        this.threeSkeleton &&
+        layer.skinIndices &&
+        layer.skinWeights &&
+        layer.skinIndices.length === (layer.vertices.length / 3) * 4
+      ) {
+        geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(new Uint16Array(layer.skinIndices), 4));
+        geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(new Float32Array(layer.skinWeights), 4));
+        const skinned = new THREE.SkinnedMesh(geometry, mat);
+        skinned.bind(this.threeSkeleton);
+        mesh = skinned;
+      } else {
+        mesh = new THREE.Mesh(geometry, mat);
+      }
+
       mesh.name = layer.name;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
 
       this.modelGroup.add(mesh);
     });
+
+    // Strictly ground model container at origin
+    this.modelGroup.position.set(0, 0, 0);
 
     if (this.skeleton) {
       this.rebuildSkeletonHelper(this.skeleton);
@@ -246,35 +315,72 @@ export class ViewportController {
     while (this.skeletonGroup.children.length > 0) {
       this.skeletonGroup.remove(this.skeletonGroup.children[0]);
     }
+    this.jointMeshMap.clear();
+    this.boneParentPairs = [];
 
     const jointGeo = new THREE.SphereGeometry(0.02, 8, 8);
     const jointMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
 
-    const linePoints: THREE.Vector3[] = [];
-    const bonePosMap = new Map<string, [number, number, number]>();
-
     skeleton.bones.forEach(b => {
-      bonePosMap.set(b.name, b.position);
-
       const jointMesh = new THREE.Mesh(jointGeo, jointMat);
       jointMesh.position.set(b.position[0], b.position[1], b.position[2]);
       this.skeletonGroup.add(jointMesh);
+      this.jointMeshMap.set(b.name, jointMesh);
 
-      if (b.parentName && bonePosMap.has(b.parentName)) {
-        const parentPos = bonePosMap.get(b.parentName)!;
-        linePoints.push(new THREE.Vector3(parentPos[0], parentPos[1], parentPos[2]));
-        linePoints.push(new THREE.Vector3(b.position[0], b.position[1], b.position[2]));
+      if (b.parentName) {
+        this.boneParentPairs.push({ child: b.name, parent: b.parentName });
       }
+    });
+
+    const linePoints: THREE.Vector3[] = [];
+    this.boneParentPairs.forEach(pair => {
+      const p1 = this.jointMeshMap.get(pair.parent)?.position || new THREE.Vector3();
+      const p2 = this.jointMeshMap.get(pair.child)?.position || new THREE.Vector3();
+      linePoints.push(p1.clone(), p2.clone());
     });
 
     if (linePoints.length > 0) {
       const lineGeo = new THREE.BufferGeometry().setFromPoints(linePoints);
       const lineMat = new THREE.LineBasicMaterial({ color: 0x0ea5e9, linewidth: 2 });
-      const lineMesh = new THREE.LineSegments(lineGeo, lineMat);
-      this.skeletonGroup.add(lineMesh);
+      this.skeletonLineMesh = new THREE.LineSegments(lineGeo, lineMat);
+      this.skeletonGroup.add(this.skeletonLineMesh);
     }
 
     this.skeletonGroup.visible = this.shadingMode === 'SKELETON_ONLY' || this.shadingMode === 'XRAY';
+  }
+
+  private updateSkeletonHelperPose(): void {
+    if (!this.skeletonGroup.visible) return;
+
+    const tempVec = new THREE.Vector3();
+    this.jointMeshMap.forEach((jointMesh, boneName) => {
+      const threeBone = this.boneMap.get(boneName);
+      if (threeBone) {
+        threeBone.getWorldPosition(tempVec);
+        jointMesh.position.copy(tempVec);
+      }
+    });
+
+    if (this.skeletonLineMesh) {
+      const posAttr = this.skeletonLineMesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+      if (posAttr) {
+        const positions = posAttr.array as Float32Array;
+        let idx = 0;
+        this.boneParentPairs.forEach(pair => {
+          const parentMesh = this.jointMeshMap.get(pair.parent);
+          const childMesh = this.jointMeshMap.get(pair.child);
+          if (parentMesh && childMesh) {
+            positions[idx++] = parentMesh.position.x;
+            positions[idx++] = parentMesh.position.y;
+            positions[idx++] = parentMesh.position.z;
+            positions[idx++] = childMesh.position.x;
+            positions[idx++] = childMesh.position.y;
+            positions[idx++] = childMesh.position.z;
+          }
+        });
+        posAttr.needsUpdate = true;
+      }
+    }
   }
 
   updateCollisionEnvelopes(envelopes: CollisionEnvelope[]): void {
@@ -376,15 +482,51 @@ export class ViewportController {
         this.skeleton
       );
 
-      // Apply subtle procedural bounce to model group
-      if (pose['Hips'] && pose['Hips'].position) {
-        this.modelGroup.position.set(
-          pose['Hips'].position[0],
-          pose['Hips'].position[1] - 0.95,
-          pose['Hips'].position[2]
-        );
+      // Apply animated pose to Three.js bones
+      if (this.threeSkeleton) {
+        for (const bone of this.threeSkeleton.bones) {
+          const bonePose = pose[bone.name];
+          if (bonePose) {
+            bone.quaternion.set(
+              bonePose.rotation[0],
+              bonePose.rotation[1],
+              bonePose.rotation[2],
+              bonePose.rotation[3]
+            );
+            if (bone.name === this.skeleton.rootBoneName && bonePose.position) {
+              bone.position.set(
+                bonePose.position[0],
+                bonePose.position[1],
+                bonePose.position[2]
+              );
+            }
+          }
+        }
+        if (this.rootBone) {
+          this.rootBone.updateMatrixWorld(true);
+        }
+        this.threeSkeleton.update();
       }
+
+      // Grounding invariant:
+      // Model container stays strictly grounded at Y=0 for IDLE, STAND, WALK, RUN, CROUCH, WAVE, TURN.
+      // Only airborne jump lifts the model container (> 0), never sinking below Y=0.
+      let rootElevation = 0;
+      if (state.currentStep.action === 'JUMP') {
+        const rootPos = pose[this.skeleton.rootBoneName]?.position;
+        if (rootPos && rootPos[1] > 0.95) {
+          rootElevation = Math.max(0, rootPos[1] - 0.95);
+        }
+      }
+      this.modelGroup.position.set(0, rootElevation, 0);
+
+      this.updateSkeletonHelperPose();
+    } else {
+      this.modelGroup.position.set(0, 0, 0);
     }
+
+    // Keep reference overlay billboarded behind the model
+    this.referenceOverlay.updateOverlayPosition(this.camera, this.controls.target);
 
     // 2. Evaluate Physics (Cloth & Hair)
     if (this.physicsEnabled) {
@@ -414,6 +556,71 @@ export class ViewportController {
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
   };
+
+  getModelGroup(): THREE.Group {
+    return this.modelGroup;
+  }
+
+  getSkeleton(): SkeletonDefinition | null {
+    return this.skeleton;
+  }
+
+  getThreeSkeleton(): THREE.Skeleton | null {
+    return this.threeSkeleton;
+  }
+
+  evaluateCurrentFrame(dt: number = 0): void {
+    if (this.isPlaying && dt > 0) {
+      this.animationTime += dt * this.playbackSpeed;
+    }
+
+    if (this.skeleton && this.actionSequence) {
+      const state = ActionSequencer.evaluateSequenceState(this.actionSequence, this.animationTime);
+      const pose = LocomotionEngine.evaluatePose(
+        this.skeleton.species,
+        state.currentStep.action,
+        this.animationTime,
+        this.skeleton
+      );
+
+      if (this.threeSkeleton) {
+        for (const bone of this.threeSkeleton.bones) {
+          const bonePose = pose[bone.name];
+          if (bonePose) {
+            bone.quaternion.set(
+              bonePose.rotation[0],
+              bonePose.rotation[1],
+              bonePose.rotation[2],
+              bonePose.rotation[3]
+            );
+            if (bone.name === this.skeleton.rootBoneName && bonePose.position) {
+              bone.position.set(
+                bonePose.position[0],
+                bonePose.position[1],
+                bonePose.position[2]
+              );
+            }
+          }
+        }
+        if (this.rootBone) {
+          this.rootBone.updateMatrixWorld(true);
+        }
+        this.threeSkeleton.update();
+      }
+
+      let rootElevation = 0;
+      if (state.currentStep.action === 'JUMP') {
+        const rootPos = pose[this.skeleton.rootBoneName]?.position;
+        if (rootPos && rootPos[1] > 0.95) {
+          rootElevation = Math.max(0, rootPos[1] - 0.95);
+        }
+      }
+      this.modelGroup.position.set(0, rootElevation, 0);
+      this.updateSkeletonHelperPose();
+    } else {
+      this.modelGroup.position.set(0, 0, 0);
+    }
+  }
 
   dispose(): void {
     if (this.animationFrameId !== null) {

@@ -60,12 +60,35 @@ export class ReferenceOverlayManager {
     }
   }
 
+  /**
+   * Dynamically positions and billboards the reference overlay behind the model
+   * Prevents the overlay plane from ever being viewed edge-on from side/isometric camera angles.
+   */
+  updateOverlayPosition(camera: THREE.Camera, target: THREE.Vector3 = new THREE.Vector3(0, 0.9, 0)): void {
+    if (!this.planeMesh || !this.planeMesh.visible) return;
+
+    // Billboard: Plane always faces the camera directly
+    this.planeMesh.quaternion.copy(camera.quaternion);
+
+    // Position safely behind model along the view direction
+    const viewRay = new THREE.Vector3().subVectors(target, camera.position);
+    if (viewRay.lengthSq() > 0.001) {
+      viewRay.normalize();
+      this.planeMesh.position.copy(target).addScaledVector(viewRay, 1.8);
+    }
+  }
+
   alignToCamera(cameraParams: CameraParameters): void {
     if (!this.planeMesh) return;
 
-    // Position overlay plane facing camera target, behind the model
     const [tx, ty, tz] = cameraParams.target;
-    this.planeMesh.position.set(tx, ty, tz - 1.2);
+    const phi = (90 - cameraParams.elevation) * (Math.PI / 180);
+    const theta = (cameraParams.azimuth + 90) * (Math.PI / 180);
+    const dirX = -Math.sin(phi) * Math.cos(theta);
+    const dirY = -Math.cos(phi);
+    const dirZ = -Math.sin(phi) * Math.sin(theta);
+
+    this.planeMesh.position.set(tx + dirX * 1.8, ty + dirY * 1.8, tz + dirZ * 1.8);
     this.planeMesh.rotation.y = (cameraParams.azimuth * Math.PI) / 180;
   }
 

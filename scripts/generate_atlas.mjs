@@ -120,49 +120,57 @@ function crc32(buf) {
 
 console.log('Decoding front.png...');
 const front = decodePng('public/references/front.png');
+console.log('Decoding side.png...');
+const side = decodePng('public/references/side.png');
 console.log('Decoding back.png...');
 const back = decodePng('public/references/back.png');
 
-console.log('Building 1024x1024 atlas...');
+console.log('Building 1024x1024 4-quadrant multi-view atlas...');
 const atlasW = 1024;
 const atlasH = 1024;
 const atlasPixels = Buffer.alloc(atlasW * atlasH * 4);
 
 // Crop rectangle for character
-const cropX = 360;
-const cropW = 304;
 const cropY = 24;
 const cropH = 516;
+const colW = 256;
 
-// Left half (0..511): Front
-for (let dy = 0; dy < atlasH; dy++) {
-  const sy = Math.floor(cropY + (dy / atlasH) * cropH);
-  for (let dx = 0; dx < 512; dx++) {
-    const sx = Math.floor(cropX + (dx / 512) * cropW);
-    const srcIdx = (sy * front.width + sx) * 4;
-    const dstIdx = (dy * atlasW + dx) * 4;
-    
-    atlasPixels[dstIdx] = front.pixels[srcIdx];
-    atlasPixels[dstIdx + 1] = front.pixels[srcIdx + 1];
-    atlasPixels[dstIdx + 2] = front.pixels[srcIdx + 2];
-    atlasPixels[dstIdx + 3] = front.pixels[srcIdx + 3];
+// Helper to copy a column
+function copyColumn(srcImg, colIndex, srcCenterX, srcWidth, mirror = false) {
+  const startX = colIndex * colW;
+  const halfW = srcWidth / 2;
+  const minSrcX = srcCenterX - halfW;
+  
+  for (let dy = 0; dy < atlasH; dy++) {
+    const sy = Math.floor(cropY + (dy / atlasH) * cropH);
+    for (let c = 0; c < colW; c++) {
+      const frac = mirror ? (1 - c / colW) : (c / colW);
+      const sx = Math.floor(minSrcX + frac * srcWidth);
+      const safeSx = Math.max(0, Math.min(srcImg.width - 1, sx));
+      const safeSy = Math.max(0, Math.min(srcImg.height - 1, sy));
+      
+      const srcIdx = (safeSy * srcImg.width + safeSx) * 4;
+      const dstIdx = (dy * atlasW + (startX + c)) * 4;
+      
+      atlasPixels[dstIdx] = srcImg.pixels[srcIdx];
+      atlasPixels[dstIdx + 1] = srcImg.pixels[srcIdx + 1];
+      atlasPixels[dstIdx + 2] = srcImg.pixels[srcIdx + 2];
+      atlasPixels[dstIdx + 3] = srcImg.pixels[srcIdx + 3];
+    }
   }
 }
 
-// Right half (512..1023): Back
-for (let dy = 0; dy < atlasH; dy++) {
-  const sy = Math.floor(cropY + (dy / atlasH) * cropH);
-  for (let dx = 0; dx < 512; dx++) {
-    const sx = Math.floor(cropX + (dx / 512) * cropW);
-    const srcIdx = (sy * back.width + sx) * 4;
-    const dstIdx = (dy * atlasW + 512 + dx) * 4;
-    
-    atlasPixels[dstIdx] = back.pixels[srcIdx];
-    atlasPixels[dstIdx + 1] = back.pixels[srcIdx + 1];
-    atlasPixels[dstIdx + 2] = back.pixels[srcIdx + 2];
-    atlasPixels[dstIdx + 3] = back.pixels[srcIdx + 3];
-  }
-}
+// Col 0 (0..255): Front View (center 512, width 260)
+copyColumn(front, 0, 512, 260, false);
+
+// Col 1 (256..511): Right Side View (center 522, width 240)
+copyColumn(side, 1, 522, 240, false);
+
+// Col 2 (512..767): Back View (center 512, width 260)
+copyColumn(back, 2, 512, 260, false);
+
+// Col 3 (768..1023): Left Side View (mirrored side, center 522, width 240)
+copyColumn(side, 3, 522, 240, true);
 
 if (!fs.existsSync('public/textures')) {
   fs.mkdirSync('public/textures', { recursive: true });
@@ -170,4 +178,4 @@ if (!fs.existsSync('public/textures')) {
 
 const outPng = encodePng(atlasW, atlasH, atlasPixels);
 fs.writeFileSync('public/textures/character_atlas.png', outPng);
-console.log('Saved public/textures/character_atlas.png (' + outPng.length + ' bytes)');
+console.log('Saved 4-view public/textures/character_atlas.png (' + outPng.length + ' bytes)');

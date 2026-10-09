@@ -122,7 +122,7 @@ export class LocomotionEngine {
       frame['RightUpperArm'] = { rotation: this.eulerToQuat(-1.2, 0, 0) };
     } else if (action === 'WAVE') {
       const waveAngle = Math.sin(t * 7.0) * 0.45;
-      frame['Hips'] = { rotation: [0, 0, 0, 1] };
+      frame['Hips'] = { position: [0, 0.95, 0], rotation: [0, 0, 0, 1] };
       frame['Spine'] = { rotation: this.eulerToQuat(0, 0.05, 0) };
       frame['Head'] = { rotation: this.eulerToQuat(0, -0.1, 0) };
       frame['LeftUpperArm'] = { rotation: this.eulerToQuat(0.1, 0, 0.1) };
@@ -132,18 +132,18 @@ export class LocomotionEngine {
       frame['RightHand'] = { rotation: this.eulerToQuat(0, waveAngle * 0.6, 0) };
     } else if (action === 'TURN_LEFT' || action === 'TURN') {
       const yaw = action === 'TURN' ? Math.sin(t * 2.0) * 0.8 : -0.7;
-      frame['Hips'] = { rotation: this.eulerToQuat(0, yaw * 0.6, 0) };
+      frame['Hips'] = { position: [0, 0.95, 0], rotation: this.eulerToQuat(0, yaw * 0.6, 0) };
       frame['Spine'] = { rotation: this.eulerToQuat(0, yaw * 0.4, 0) };
       frame['Head'] = { rotation: this.eulerToQuat(0, yaw * 0.3, 0) };
     } else if (action === 'TURN_RIGHT') {
       const yaw = 0.7;
-      frame['Hips'] = { rotation: this.eulerToQuat(0, yaw * 0.6, 0) };
+      frame['Hips'] = { position: [0, 0.95, 0], rotation: this.eulerToQuat(0, yaw * 0.6, 0) };
       frame['Spine'] = { rotation: this.eulerToQuat(0, yaw * 0.4, 0) };
       frame['Head'] = { rotation: this.eulerToQuat(0, yaw * 0.3, 0) };
     } else {
       // IDLE breathing
       const breath = Math.sin(t * 2.0);
-      frame['Hips'] = { rotation: [0, 0, 0, 1] };
+      frame['Hips'] = { position: [0, 0.95, 0], rotation: [0, 0, 0, 1] };
       frame['Spine'] = { rotation: this.eulerToQuat(breath * 0.02, 0, 0) };
       frame['Chest'] = { rotation: this.eulerToQuat(breath * 0.03, 0, 0) };
       frame['Head'] = { rotation: this.eulerToQuat(-breath * 0.015, 0, 0) };
