@@ -1,8 +1,8 @@
 /**
- * Model Studio - Professional Studio Top Bar
- * Minimalist top bar inspired by professional 3D DCC tools (Blender / Maya / Unreal).
- * Project Name, Workflow Mode Switcher (Model | Rig | Animate | Materials | Physics),
- * Import, Save, Undo, Redo, Technical Diagnostics, and Export Asset.
+ * Model Studio - Professional Studio Top Bar (Section 1, 4, 65)
+ * Universal AI 2D/3D Model Builder Master Navigation
+ * Mode Switcher (3D Studio / 2D Canvas), Workflow Modes (Model, Rig, Animate, Materials, Physics),
+ * Import, Save (Native & Canonical JSON), Diagnostics, and Universal Exporter.
  */
 
 import React, { useRef, useState } from 'react';
@@ -23,6 +23,8 @@ import {
   Check,
   Edit2,
   Brain,
+  FileCode,
+  PenTool,
 } from 'lucide-react';
 import { useStudio } from '../core/studioState';
 import { StudioWorkflowMode } from '../core/types';
@@ -32,6 +34,8 @@ export const TopBar: React.FC = () => {
     project,
     workflowMode,
     setWorkflowMode,
+    activeEditorMode,
+    setActiveEditorMode,
     canUndo,
     canRedo,
     undo,
@@ -39,6 +43,7 @@ export const TopBar: React.FC = () => {
     projectName,
     setProjectName,
     saveProjectToFile,
+    saveAsCanonicalJson,
     uploadReferenceSheet,
     backgroundJobs,
     setShowDiagnosticsModal,
@@ -94,7 +99,7 @@ export const TopBar: React.FC = () => {
         className="hidden"
       />
 
-      {/* Brand & Project Name */}
+      {/* Brand, Project Name & Studio Mode Switcher */}
       <div className="flex items-center gap-3">
         {/* Brand Icon & Name */}
         <div className="flex items-center gap-2">
@@ -109,8 +114,38 @@ export const TopBar: React.FC = () => {
 
         <div className="h-4 w-px bg-slate-800" />
 
+        {/* Primary Dual-Mode Toggle: 3D Studio vs 2D Canvas */}
+        <div className="flex items-center bg-slate-900 border border-slate-800 rounded-md p-0.5 shadow-sm">
+          <button
+            onClick={() => setActiveEditorMode('3d')}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-all ${
+              activeEditorMode === '3d'
+                ? 'bg-sky-500 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title="3D Creation, Volumetric Reconstruction & Animation Studio"
+          >
+            <Box className="w-3 h-3" />
+            <span>3D Studio</span>
+          </button>
+          <button
+            onClick={() => setActiveEditorMode('2d')}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-all ${
+              activeEditorMode === '2d'
+                ? 'bg-sky-500 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title="2D Vector, Silhouette, Masks & Reference Landmark Editor"
+          >
+            <PenTool className="w-3 h-3" />
+            <span>2D Canvas</span>
+          </button>
+        </div>
+
+        <div className="h-4 w-px bg-slate-800 hidden sm:block" />
+
         {/* Project Name (Editable) */}
-        <div className="flex items-center gap-1.5 group">
+        <div className="hidden sm:flex items-center gap-1.5 group">
           {isEditingName ? (
             <div className="flex items-center gap-1">
               <input
@@ -151,7 +186,7 @@ export const TopBar: React.FC = () => {
         <button
           onClick={() => setShowUnderstandingModal(true)}
           title="Review AI Anatomy & Structure Understanding"
-          className="hidden md:flex items-center gap-1.5 px-2 py-0.5 rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border border-sky-500/30 text-[11px] font-medium transition-all"
+          className="hidden lg:flex items-center gap-1.5 px-2 py-0.5 rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border border-sky-500/30 text-[11px] font-medium transition-all"
         >
           <Brain className="w-3 h-3 text-sky-400" />
           <span>AI: {project.automaticUnderstanding?.bodyPlanForm.replace('_', ' ') || project.species}</span>
@@ -159,7 +194,7 @@ export const TopBar: React.FC = () => {
       </div>
 
       {/* Central Workflow Mode Tabs */}
-      <div className="flex items-center bg-slate-900/90 border border-slate-800 rounded-lg p-0.5 shadow-inner">
+      <div className="hidden md:flex items-center bg-slate-900/90 border border-slate-800 rounded-lg p-0.5 shadow-inner">
         {workflowModes.map(mode => {
           const isActive = workflowMode === mode.id;
           return (
@@ -179,7 +214,7 @@ export const TopBar: React.FC = () => {
         })}
       </div>
 
-      {/* Right Actions: Import, Save, Undo, Redo, Diagnostics, Export */}
+      {/* Right Actions: Import, Save, Canonical JSON, Undo, Redo, Diagnostics, Export */}
       <div className="flex items-center gap-2">
         {/* Undo / Redo */}
         <div className="flex items-center">
@@ -213,14 +248,24 @@ export const TopBar: React.FC = () => {
           <span className="hidden sm:inline">Import</span>
         </button>
 
-        {/* Save Action */}
+        {/* Save Native Project */}
         <button
           onClick={saveProjectToFile}
-          title="Save Project File (.modelstudio)"
+          title="Save Native Project (.modelstudio)"
           className="flex items-center gap-1 px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs font-medium transition-colors"
         >
           <Save className="w-3.5 h-3.5 text-slate-400" />
           <span className="hidden sm:inline">Save</span>
+        </button>
+
+        {/* Save Canonical Schema v1.0.0 JSON */}
+        <button
+          onClick={saveAsCanonicalJson}
+          title="Export Canonical Scene Manifest JSON (Schema v1.0.0)"
+          className="hidden sm:flex items-center gap-1 px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-sky-300 border border-slate-800 text-xs font-medium transition-colors"
+        >
+          <FileCode className="w-3.5 h-3.5 text-sky-400" />
+          <span className="hidden md:inline">Manifest</span>
         </button>
 
         {/* Jobs Indicator (if any running) */}
@@ -252,10 +297,11 @@ export const TopBar: React.FC = () => {
           </span>
         </button>
 
-        {/* Export Asset (Primary Action) */}
+        {/* Export Asset (Universal Multi-Format Exporter) */}
         <button
           onClick={() => setShowExportModal(true)}
           className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-sky-500 hover:bg-sky-400 text-white text-xs font-semibold shadow-md shadow-sky-500/20 transition-all active:scale-95"
+          title="Open Universal Exporter (GLB, VRM, OBJ, STL, SVG, PNG)"
         >
           <Download className="w-3.5 h-3.5" />
           <span>Export</span>

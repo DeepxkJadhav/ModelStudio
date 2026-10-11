@@ -1,6 +1,7 @@
 /**
- * Model Studio - Centralized Export Manager & Re-Import Validation (Sections 47, 48, 63)
- * Exports genuine GLB, VRM, OBJ, STL, PLY, and .modelstudio files with automated re-import checks
+ * Model Studio - Universal Multi-Format Export Manager (Section 6)
+ * Powered by ExporterRegistry with format capability declaration,
+ * live pre-flight conversion validation reports, and re-import verification.
  */
 
 import React, { useState } from 'react';
@@ -13,36 +14,38 @@ import {
   ShieldAlert,
   Loader2,
   Box,
+  Layers,
+  FileCode,
+  Info,
+  Check,
 } from 'lucide-react';
 import { useStudio } from '../../core/studioState';
-import { GLTFExporter } from '../../io/gltfExporter';
-import { VRMExporter } from '../../io/vrmExporter';
-import { OBJExporter } from '../../io/objExporter';
-import { STLExporter } from '../../io/stlExporter';
-import { PLYExporter } from '../../io/plyExporter';
-import { ProjectSerializer } from '../../core/project';
+import { ExporterRegistry, FormatCapability, ConversionReport } from '../../io/formatRegistry';
 import { ReimportValidator, ReimportValidationResult } from '../../io/reimportValidator';
 
-type ExportFormat = 'GLB' | 'VRM' | 'OBJ' | 'STL' | 'PLY' | 'MODELSTUDIO';
+type ExportFormatId = 'glb' | 'vrm' | 'obj' | 'stl' | 'svg' | 'png' | 'modelstudio';
 
 export const ExportModal: React.FC = () => {
   const { project, showExportModal, setShowExportModal } = useStudio();
-  const [selectedFormat, setSelectedFormat] = useState<ExportFormat>('GLB');
+  const [selectedFormat, setSelectedFormat] = useState<ExportFormatId>('glb');
+  const [isExporting, setIsExporting] = useState<boolean>(false);
   const [isTestingReimport, setIsTestingReimport] = useState<boolean>(false);
   const [reimportResult, setReimportResult] = useState<ReimportValidationResult | null>(null);
 
   if (!showExportModal) return null;
 
-  const vrmValidation = VRMExporter.validateForVRM(project.species, project.skeleton);
+  const capabilities = ExporterRegistry.getAllCapabilities();
+  const currentCapability = ExporterRegistry.getCapability(selectedFormat);
+  const conversionReport: ConversionReport = ExporterRegistry.generateConversionReport(selectedFormat, project);
 
   const handleTestReimport = async () => {
     setIsTestingReimport(true);
     setReimportResult(null);
 
     let res: ReimportValidationResult;
-    if (selectedFormat === 'OBJ') {
+    if (selectedFormat === 'obj') {
       res = await ReimportValidator.validateOBJRoundTrip(project.layers, project.materials);
-    } else if (selectedFormat === 'STL') {
+    } else if (selectedFormat === 'stl') {
       res = await ReimportValidator.validateSTLRoundTrip(project.layers);
     } else {
       res = await ReimportValidator.validateGLBRoundTrip(project.layers, project.materials);
@@ -52,201 +55,262 @@ export const ExportModal: React.FC = () => {
     setIsTestingReimport(false);
   };
 
-  const handleDownload = () => {
-    const safeName = project.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+  const handleDownload = async () => {
+    setIsExporting(true);
+    try {
+      const result = await ExporterRegistry.exportAsset(selectedFormat, project);
+      let blob: Blob;
+      if (typeof result.data === 'string') {
+        const mime = currentCapability?.mimeType || 'text/plain';
+        blob = new Blob([result.data], { type: mime });
+      } else {
+        blob = result.data;
+      }
 
-    if (selectedFormat === 'GLB') {
-      const buffer = GLTFExporter.exportGLB(project.layers, project.materials, project.skeleton);
-      const blob = new Blob([buffer], { type: 'model/gltf-binary' });
-      triggerDownload(blob, `${safeName}.glb`);
-    } else if (selectedFormat === 'VRM') {
-      const buffer = VRMExporter.exportVRM(project.layers, project.materials, project.skeleton);
-      const blob = new Blob([buffer], { type: 'model/gltf-binary' });
-      triggerDownload(blob, `${safeName}.vrm`);
-    } else if (selectedFormat === 'OBJ') {
-      const { obj } = OBJExporter.exportOBJ(project.layers, project.materials);
-      const blob = new Blob([obj], { type: 'text/plain' });
-      triggerDownload(blob, `${safeName}.obj`);
-    } else if (selectedFormat === 'STL') {
-      const buffer = STLExporter.exportBinarySTL(project.layers);
-      const blob = new Blob([buffer], { type: 'application/octet-stream' });
-      triggerDownload(blob, `${safeName}.stl`);
-    } else if (selectedFormat === 'PLY') {
-      const ply = PLYExporter.exportPLY(project.layers);
-      const blob = new Blob([ply], { type: 'text/plain' });
-      triggerDownload(blob, `${safeName}.ply`);
-    } else if (selectedFormat === 'MODELSTUDIO') {
-      const json = ProjectSerializer.serialize(project);
-      const blob = new Blob([json], { type: 'application/json' });
-      triggerDownload(blob, `${safeName}.modelstudio`);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = result.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error('Export failed:', err);
+    } finally {
+      setIsExporting(false);
     }
   };
 
-  const triggerDownload = (blob: Blob, filename: string) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  const formats: Array<{ id: ExportFormat; label: string; desc: string; ext: string }> = [
-    { id: 'GLB', label: 'glTF 2.0 Binary (.glb)', desc: 'Standard production format with meshes, materials, and skeletons', ext: '.glb' },
-    { id: 'VRM', label: 'VRM Avatar (.vrm)', desc: 'Humanoid avatar standard with expressions and spring bones', ext: '.vrm' },
-    { id: 'OBJ', label: 'Wavefront OBJ (.obj)', desc: 'Universal 3D geometry with texture UVs and materials', ext: '.obj' },
-    { id: 'STL', label: 'Stereolithography (.stl)', desc: '3D printing and CAD geometry format', ext: '.stl' },
-    { id: 'PLY', label: 'Stanford PLY (.ply)', desc: 'Polygon file format with normals and point attributes', ext: '.ply' },
-    { id: 'MODELSTUDIO', label: 'Native Project (.modelstudio)', desc: 'Complete studio bundle with references, history, and physics', ext: '.modelstudio' },
-  ];
-
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-xl bg-studio-panel border border-studio-panel-border rounded-xl shadow-2xl overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="px-5 py-4 border-b border-studio-panel-border bg-slate-900/90 flex items-center justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl max-w-3xl w-full flex flex-col max-h-[90vh] overflow-hidden">
+        {/* Modal Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-lg bg-sky-500/20 text-sky-400 border border-sky-500/40">
+            <div className="p-2 rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/20">
               <Download className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-white">Production Asset Export</h2>
-              <p className="text-[11px] text-slate-400">Export genuine 3D model formats with strict pre-flight validation</p>
+              <h2 className="text-base font-bold text-white">Universal Format Exporter</h2>
+              <p className="text-xs text-slate-400">
+                Vendor-neutral asset serialization with live capability analysis & validation report
+              </p>
             </div>
           </div>
           <button
             onClick={() => setShowExportModal(false)}
-            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Body */}
-        <div className="p-5 space-y-4 overflow-y-auto max-h-[75vh]">
-          {/* Format Selection List */}
-          <div className="space-y-2">
-            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Select Export Target</label>
-            <div className="grid grid-cols-1 gap-2">
-              {formats.map(fmt => {
-                const isSelected = selectedFormat === fmt.id;
-                const isVRMDisabled = fmt.id === 'VRM' && !vrmValidation.canExport;
-
+        {/* Modal Content */}
+        <div className="p-6 overflow-y-auto space-y-6 flex-1 text-sm">
+          {/* Format Selector Grid */}
+          <div>
+            <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2.5 block">
+              Select Target Delivery Format:
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+              {capabilities.map(cap => {
+                const isSelected = selectedFormat === cap.formatId;
                 return (
-                  <div
-                    key={fmt.id}
+                  <button
+                    key={cap.formatId}
                     onClick={() => {
-                      if (!isVRMDisabled) setSelectedFormat(fmt.id);
+                      setSelectedFormat(cap.formatId as ExportFormatId);
+                      setReimportResult(null);
                     }}
-                    className={`p-3 rounded-lg border transition-all flex items-center justify-between cursor-pointer ${
+                    className={`flex flex-col text-left p-3 rounded-lg border transition-all cursor-pointer ${
                       isSelected
-                        ? 'bg-sky-500/15 border-sky-400 text-white shadow-sm'
-                        : isVRMDisabled
-                        ? 'bg-slate-900/50 border-slate-800 text-slate-500 cursor-not-allowed'
-                        : 'bg-slate-800/40 border-slate-700/60 hover:bg-slate-800/60 text-slate-300'
+                        ? 'bg-sky-500/15 border-sky-400/80 ring-1 ring-sky-400/50 shadow-md'
+                        : 'bg-slate-950/70 border-slate-800/80 hover:border-slate-700 hover:bg-slate-800/40 text-slate-300'
                     }`}
                   >
-                    <div>
-                      <div className="text-xs font-bold flex items-center gap-2">
-                        <span>{fmt.label}</span>
-                        {fmt.id === 'VRM' && isVRMDisabled && (
-                          <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.2 rounded border border-amber-500/40">
-                            Humanoid Only
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">{fmt.desc}</div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className={`font-mono text-xs font-bold uppercase ${isSelected ? 'text-sky-300' : 'text-slate-200'}`}>
+                        {cap.extension}
+                      </span>
+                      <span className="text-[10px] text-slate-500 px-1 py-0.2 rounded bg-slate-900 border border-slate-800">
+                        {cap.category}
+                      </span>
                     </div>
-                    <span className="font-mono text-xs text-sky-400 font-semibold">{fmt.ext}</span>
-                  </div>
+                    <span className="text-xs font-medium text-slate-200 leading-snug line-clamp-1">
+                      {cap.name}
+                    </span>
+                  </button>
                 );
               })}
             </div>
           </div>
 
-          {/* VRM Humanoid Gate Warning (Section 47) */}
-          {selectedFormat === 'VRM' && !vrmValidation.canExport && (
-            <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2">
-              <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-semibold">VRM Validation Blocked:</span> {vrmValidation.speciesWarning || vrmValidation.errors.join(', ')}
+          {/* Format Capability Details & Conversion Report */}
+          {currentCapability && (
+            <div className="bg-slate-950/80 border border-slate-800 rounded-lg p-4 space-y-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                    <span>{currentCapability.name}</span>
+                    <span className="text-xs font-mono text-slate-400">({currentCapability.mimeType})</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                    {currentCapability.description}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-[11px] font-mono text-slate-400">Estimated Payload</div>
+                  <div className="text-xs font-mono font-bold text-sky-400">
+                    ~{(conversionReport.fileSizeBytes / 1024).toFixed(1)} KB
+                  </div>
+                </div>
               </div>
+
+              {/* Capability Matrix Badges */}
+              <div className="flex flex-wrap gap-1.5 pt-2 border-t border-slate-800/80">
+                <span className={`px-2 py-0.5 rounded text-[11px] font-medium border ${
+                  currentCapability.preservesGeometry ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                }`}>
+                  {currentCapability.preservesGeometry ? '✓ Meshes' : '✕ No Mesh'}
+                </span>
+                <span className={`px-2 py-0.5 rounded text-[11px] font-medium border ${
+                  currentCapability.preservesMaterials ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-slate-800 text-slate-400 border-slate-700'
+                }`}>
+                  {currentCapability.preservesPbrTextures ? '✓ PBR Materials' : currentCapability.preservesMaterials ? '✓ Basic Materials' : '✕ No Materials'}
+                </span>
+                <span className={`px-2 py-0.5 rounded text-[11px] font-medium border ${
+                  currentCapability.preservesRig ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-slate-800 text-slate-400 border-slate-700'
+                }`}>
+                  {currentCapability.preservesRig ? '✓ Skeleton Rig' : '✕ Static Only'}
+                </span>
+                <span className={`px-2 py-0.5 rounded text-[11px] font-medium border ${
+                  currentCapability.preservesAnimations ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-slate-800 text-slate-400 border-slate-700'
+                }`}>
+                  {currentCapability.preservesAnimations ? '✓ Animations' : '✕ No Keyframes'}
+                </span>
+                <span className={`px-2 py-0.5 rounded text-[11px] font-medium border ${
+                  currentCapability.preserves2DLayers ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-slate-800 text-slate-400 border-slate-700'
+                }`}>
+                  {currentCapability.preserves2DLayers ? '✓ 2D Layers' : '✕ 3D Only'}
+                </span>
+              </div>
+
+              {/* Conversion Report Sections */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                {/* Preserved Features */}
+                <div className="p-3 rounded bg-slate-900 border border-slate-800 space-y-1.5">
+                  <div className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Preserved in Target</span>
+                  </div>
+                  <ul className="text-xs text-slate-300 space-y-1">
+                    {conversionReport.preservedFeatures.map((f, i) => (
+                      <li key={i} className="flex items-start gap-1.5">
+                        <span className="text-emerald-400 text-[10px] mt-0.5">•</span>
+                        <span>{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Transformed or Discarded Features */}
+                <div className="p-3 rounded bg-slate-900 border border-slate-800 space-y-1.5">
+                  <div className="text-[11px] font-semibold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Info className="w-3.5 h-3.5" />
+                    <span>Transformed or Excluded</span>
+                  </div>
+                  <ul className="text-xs text-slate-400 space-y-1">
+                    {conversionReport.transformedFeatures.map((f, i) => (
+                      <li key={i} className="flex items-start gap-1.5 text-amber-300">
+                        <span className="text-amber-400 text-[10px] mt-0.5">~</span>
+                        <span>{f}</span>
+                      </li>
+                    ))}
+                    {conversionReport.discardedFeatures.map((f, i) => (
+                      <li key={i} className="flex items-start gap-1.5 text-slate-500">
+                        <span className="text-slate-600 text-[10px] mt-0.5">✕</span>
+                        <span>{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+
+              {/* Conversion Warnings if any */}
+              {conversionReport.warnings.length > 0 && (
+                <div className="p-2.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    {conversionReport.warnings.map((w, i) => (
+                      <div key={i}>{w}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Re-Import Verification Test (Section 63) */}
-          <div className="p-3.5 rounded-lg bg-slate-900 border border-slate-800 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
-                <FileCheck className="w-4 h-4 text-sky-400" />
-                <span>End-to-End Re-Import Verification</span>
+          {/* Re-Import Round-Trip Verification */}
+          {(selectedFormat === 'glb' || selectedFormat === 'vrm' || selectedFormat === 'obj' || selectedFormat === 'stl') && (
+            <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg p-3.5 flex items-center justify-between">
+              <div>
+                <div className="text-xs font-semibold text-white flex items-center gap-2">
+                  <FileCheck className="w-4 h-4 text-sky-400" />
+                  <span>Pre-Flight Re-Import Verification</span>
+                </div>
+                <div className="text-[11px] text-slate-400 mt-0.5">
+                  Simulates decoding exported buffer in an isolated parser to ensure zero corruption or lost geometry.
+                </div>
               </div>
               <button
                 onClick={handleTestReimport}
                 disabled={isTestingReimport}
-                className="studio-btn studio-btn-secondary text-[11px] py-1 px-2.5"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition-colors shrink-0 disabled:opacity-50"
               >
-                {isTestingReimport ? (
-                  <>
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    <span>Verifying...</span>
-                  </>
-                ) : (
-                  <span>Test Round-Trip</span>
-                )}
+                {isTestingReimport && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>Verify Roundtrip</span>
               </button>
             </div>
+          )}
 
-            {reimportResult && (
-              <div
-                className={`p-2.5 rounded border text-xs font-mono flex items-start gap-2 ${
-                  reimportResult.passed
-                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                    : 'bg-red-500/10 border-red-500/30 text-red-300'
-                }`}
-              >
-                {reimportResult.passed ? (
-                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" />
-                ) : (
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-400" />
-                )}
-                <div className="space-y-0.5 text-[11px]">
-                  <div className="font-bold">
-                    {reimportResult.passed ? 'RE-IMPORT VERIFICATION PASSED' : 'RE-IMPORT VERIFICATION FAILED'}
-                  </div>
-                  <div>
-                    Exported Tris: {reimportResult.exportedTriangles} | Re-imported Tris: {reimportResult.reimportedTriangles}
-                  </div>
-                  <div>
-                    Vertices: {reimportResult.exportedVertices} | Buffer Integrity: 100%
-                  </div>
-                </div>
+          {/* Re-import Verification Result Feedback */}
+          {reimportResult && (
+            <div className={`p-3 rounded-lg border text-xs ${
+              reimportResult.passed
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+            }`}>
+              <div className="font-semibold flex items-center gap-1.5">
+                {reimportResult.passed ? <CheckCircle2 className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />}
+                <span>{reimportResult.passed ? 'Re-import Validation Passed!' : 'Re-import Validation Failed'}</span>
               </div>
-            )}
-          </div>
+              <div className="text-[11px] text-slate-300 mt-1 font-mono">
+                Decoded {reimportResult.reimportedTriangles.toLocaleString()} triangles, {reimportResult.reimportedVertices.toLocaleString()} vertices.
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Footer */}
-        <div className="p-4 border-t border-studio-panel-border bg-slate-900/90 flex justify-between items-center">
-          <span className="text-[11px] text-slate-400 font-mono">
-            {project.layers.reduce((acc, l) => acc + l.triangleCount, 0).toLocaleString()} Triangles
-          </span>
-          <div className="flex gap-2">
+        {/* Modal Footer */}
+        <div className="px-6 py-4 border-t border-slate-800 bg-slate-950 flex items-center justify-between">
+          <div className="text-xs text-slate-500 font-mono">
+            Mesh: {conversionReport.metrics.triangleCount.toLocaleString()} tris • {conversionReport.metrics.boneCount} bones
+          </div>
+          <div className="flex items-center gap-2">
             <button
               onClick={() => setShowExportModal(false)}
-              className="studio-btn studio-btn-secondary"
+              className="px-4 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-850 text-xs font-medium transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={handleDownload}
-              disabled={selectedFormat === 'VRM' && !vrmValidation.canExport}
-              className="studio-btn studio-btn-primary disabled:opacity-40 disabled:pointer-events-none"
+              disabled={isExporting}
+              className="flex items-center gap-2 px-5 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-white font-semibold text-xs shadow-lg shadow-sky-500/25 transition-all active:scale-95 disabled:opacity-50"
             >
-              <Download className="w-3.5 h-3.5" />
-              <span>Download {selectedFormat}</span>
+              {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              <span>Download {currentCapability?.extension.toUpperCase()}</span>
             </button>
           </div>
         </div>

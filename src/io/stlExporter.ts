@@ -70,4 +70,8 @@ export class STLExporter {
 
     return buffer;
   }
+
+  static exportSTL(layers: MeshLayer[], _options?: { binary?: boolean }): ArrayBuffer {
+    return this.exportBinarySTL(layers);
+  }
 }

@@ -15,6 +15,7 @@ import {
   StudioWorkflowMode,
 } from './types';
 import { ProjectSerializer } from './project';
+import { CanonicalProjectAdapter } from './canonicalProjectAdapter';
 import { DefaultModelFactory } from './defaultModels';
 import { HistoryManager } from '../editing/historyManager';
 import { detectHardwareCapabilities, HardwareProfile } from './hardware';
@@ -76,9 +77,12 @@ interface StudioStateContextType {
   setRightSidebarOpen: (open: boolean) => void;
   projectName: string;
   setProjectName: (name: string) => void;
+  activeEditorMode: '3d' | '2d';
+  setActiveEditorMode: (mode: '3d' | '2d') => void;
 
   // Actions
   saveProjectToFile: () => void;
+  saveAsCanonicalJson: () => void;
   toggleLayerVisibility: (layerId: string) => void;
   acceptAutomaticUnderstanding: () => void;
   overrideModelUnderstanding: (patch: { species?: SpeciesCategory; anatomy?: any }) => void;
@@ -128,6 +132,8 @@ export const StudioStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [rightSidebarOpen, setRightSidebarOpen] = useState<boolean>(true);
   const [projectName, setProjectName] = useState<string>('Turnaround Character');
 
+  const [activeEditorMode, setActiveEditorMode] = useState<'3d' | '2d'>('3d');
+
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [canRedo, setCanRedo] = useState<boolean>(false);
 
@@ -154,6 +160,17 @@ export const StudioStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const a = document.createElement('a');
     a.href = url;
     a.download = `${projectName.toLowerCase().replace(/\s+/g, '_')}.modelstudio`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [project, projectName]);
+
+  const saveAsCanonicalJson = useCallback(() => {
+    const jsonStr = CanonicalProjectAdapter.serializeToCanonicalJson(project);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${projectName.toLowerCase().replace(/\s+/g, '_')}_canonical_schema.json`;
     a.click();
     URL.revokeObjectURL(url);
   }, [project, projectName]);
@@ -604,7 +621,10 @@ export const StudioStateProvider: React.FC<{ children: React.ReactNode }> = ({ c
         setRightSidebarOpen,
         projectName,
         setProjectName,
+        activeEditorMode,
+        setActiveEditorMode,
         saveProjectToFile,
+        saveAsCanonicalJson,
         toggleLayerVisibility,
         acceptAutomaticUnderstanding,
         overrideModelUnderstanding,

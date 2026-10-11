@@ -202,4 +202,13 @@ export class GLTFExporter {
 
     return glbBuffer;
   }
+
+  static exportGLTF(
+    layers: MeshLayer[],
+    materials: MaterialProperties[],
+    skeleton?: SkeletonDefinition,
+    _options?: any
+  ): ArrayBuffer {
+    return this.exportGLB(layers, materials, skeleton);
+  }
 }
