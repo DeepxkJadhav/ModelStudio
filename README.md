@@ -225,4 +225,4 @@ This project is licensed under the [MIT License](LICENSE).
 
 ## 👤 Author Remarks
 
-Engineered by [Deep Jadhav](https://github.com/DeepxkJadhav) — Designed to redefine AI-assisted 3D creation by treating the 3D viewport, volumetric geometry, and rigging as first-class citizens.
+Engineered by [Deepak Jadhav](https://github.com/DeepxkJadhav) — Designed to redefine AI-assisted 3D creation by treating the 3D viewport, volumetric geometry, and rigging as first-class citizens.
