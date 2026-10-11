@@ -124,18 +124,22 @@ console.log('Decoding side.png...');
 const side = decodePng('public/references/side.png');
 console.log('Decoding back.png...');
 const back = decodePng('public/references/back.png');
+console.log('Decoding top.png...');
+const top = fs.existsSync('public/references/top.png') ? decodePng('public/references/top.png') : null;
+console.log('Decoding bottom.png...');
+const bottom = fs.existsSync('public/references/bottom.png') ? decodePng('public/references/bottom.png') : null;
 
-console.log('Building 1024x1024 4-quadrant multi-view atlas...');
+console.log('Building 1024x1024 4-quadrant calibrated multi-view atlas...');
 const atlasW = 1024;
 const atlasH = 1024;
 const atlasPixels = Buffer.alloc(atlasW * atlasH * 4);
 
-// Crop rectangle for character
-const cropY = 24;
-const cropH = 516;
+// Exact character silhouette crop matching 41..539 vertical height
+const cropY = 38;
+const cropH = 504;
 const colW = 256;
 
-// Helper to copy a column
+// Helper to copy a column with precise horizontal framing
 function copyColumn(srcImg, colIndex, srcCenterX, srcWidth, mirror = false) {
   const startX = colIndex * colW;
   const halfW = srcWidth / 2;
@@ -160,17 +164,69 @@ function copyColumn(srcImg, colIndex, srcCenterX, srcWidth, mirror = false) {
   }
 }
 
-// Col 0 (0..255): Front View (center 512, width 260)
-copyColumn(front, 0, 512, 260, false);
+// Col 0 (0..255): Front View (center 512, character width 156 with 6px margins)
+copyColumn(front, 0, 512, 156, false);
 
-// Col 1 (256..511): Right Side View (center 522, width 240)
-copyColumn(side, 1, 522, 240, false);
+// Col 1 (256..511): Right Side View (center 523, character depth 110 with 6px margins)
+copyColumn(side, 1, 523, 110, false);
 
-// Col 2 (512..767): Back View (center 512, width 260)
-copyColumn(back, 2, 512, 260, false);
+// Col 2 (512..767): Back View (center 512, character width 156 with 6px margins)
+copyColumn(back, 2, 512, 156, false);
 
-// Col 3 (768..1023): Left Side View (mirrored side, center 522, width 240)
-copyColumn(side, 3, 522, 240, true);
+// Col 3 (768..1023): Left Side View (mirrored side, center 523, depth 110)
+copyColumn(side, 3, 523, 110, true);
+
+// Embed bottom shoe tread details into sole region (dy: 990..1023)
+if (bottom) {
+  const soleStartDy = 988;
+  const soleH = atlasH - soleStartDy;
+  for (let dy = soleStartDy; dy < atlasH; dy++) {
+    const bFracY = (dy - soleStartDy) / soleH;
+    // Map to soles area in bottom.png (y: 260 to 520)
+    const bSy = Math.floor(260 + bFracY * 260);
+    
+    // Left shoe sole into Col 0 left half (c: 20..115)
+    for (let c = 20; c < 115; c++) {
+      const bFracX = (c - 20) / 95;
+      const bSx = Math.floor(310 + bFracX * 150); // Left sole in bottom.png
+      const srcIdx = (bSy * bottom.width + bSx) * 4;
+      const dstIdx = (dy * atlasW + c) * 4;
+      atlasPixels[dstIdx] = bottom.pixels[srcIdx];
+      atlasPixels[dstIdx + 1] = bottom.pixels[srcIdx + 1];
+      atlasPixels[dstIdx + 2] = bottom.pixels[srcIdx + 2];
+      atlasPixels[dstIdx + 3] = 255;
+    }
+    // Right shoe sole into Col 0 right half (c: 140..235)
+    for (let c = 140; c < 235; c++) {
+      const bFracX = (c - 140) / 95;
+      const bSx = Math.floor(580 + bFracX * 140); // Right sole in bottom.png
+      const srcIdx = (bSy * bottom.width + bSx) * 4;
+      const dstIdx = (dy * atlasW + c) * 4;
+      atlasPixels[dstIdx] = bottom.pixels[srcIdx];
+      atlasPixels[dstIdx + 1] = bottom.pixels[srcIdx + 1];
+      atlasPixels[dstIdx + 2] = bottom.pixels[srcIdx + 2];
+      atlasPixels[dstIdx + 3] = 255;
+    }
+  }
+}
+
+// Embed top hair parting into crown region (dy: 0..30)
+if (top) {
+  for (let dy = 0; dy < 30; dy++) {
+    const tFracY = dy / 30;
+    const tSy = Math.floor(180 + tFracY * 120);
+    for (let c = 60; c < 196; c++) {
+      const tFracX = (c - 60) / 136;
+      const tSx = Math.floor(440 + tFracX * 144);
+      const srcIdx = (tSy * top.width + tSx) * 4;
+      const dstIdx = (dy * atlasW + c) * 4;
+      atlasPixels[dstIdx] = top.pixels[srcIdx];
+      atlasPixels[dstIdx + 1] = top.pixels[srcIdx + 1];
+      atlasPixels[dstIdx + 2] = top.pixels[srcIdx + 2];
+      atlasPixels[dstIdx + 3] = 255;
+    }
+  }
+}
 
 if (!fs.existsSync('public/textures')) {
   fs.mkdirSync('public/textures', { recursive: true });
@@ -178,4 +234,4 @@ if (!fs.existsSync('public/textures')) {
 
 const outPng = encodePng(atlasW, atlasH, atlasPixels);
 fs.writeFileSync('public/textures/character_atlas.png', outPng);
-console.log('Saved 4-view public/textures/character_atlas.png (' + outPng.length + ' bytes)');
+console.log('Saved 5-view calibrated public/textures/character_atlas.png (' + outPng.length + ' bytes)');

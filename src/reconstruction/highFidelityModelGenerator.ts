@@ -19,32 +19,73 @@ export interface GeneratedCharacterModel {
 
 export class HighFidelityModelGenerator {
   /**
-   * Computes calibrated UV coordinates on the unified 4-quadrant multi-view atlas
-   * Col 0 (0.00..0.25): Front view
-   * Col 1 (0.25..0.50): Right side view
+   * Computes calibrated UV coordinates on the unified 5-view multi-view atlas
+   * Col 0 (0.00..0.25): Front view (with top crown at dy<30 and bottom soles at dy>988)
+   * Col 1 (0.25..0.50): Right side profile view
    * Col 2 (0.50..0.75): Back view
-   * Col 3 (0.75..1.00): Left side view (mirrored)
+   * Col 3 (0.75..1.00): Left side profile view (mirrored)
    */
-  private static computeAtlasUV(
+  public static computeAtlasUV(
     x: number,
     y: number,
     z: number,
-    loopFracOrNz?: number
+    nx: number = 0,
+    ny: number = 0,
+    nz: number = 0,
+    options?: { isSole?: boolean; isCrown?: boolean }
   ): [number, number] {
-    // Y spans 0.00 (feet) to 1.70 (head crown)
-    const v = Math.max(0.01, Math.min(0.99, 0.033 + (y / 1.70) * 0.937));
+    // 1. Vertical coordinate v
+    // Sole outsole check
+    if (options?.isSole || (ny < -0.65 && y <= 0.03)) {
+      const v = 0.015;
+      let u: number;
+      if (x < 0) {
+        // Left shoe sole: c in [20..115] -> u in [0.020..0.112]
+        const fracX = Math.max(0, Math.min(1, (x - (-0.15)) / 0.11));
+        u = 0.020 + fracX * 0.092;
+      } else {
+        // Right shoe sole: c in [140..235] -> u in [0.137..0.230]
+        const fracX = Math.max(0, Math.min(1, (x - 0.04) / 0.11));
+        u = 0.137 + fracX * 0.092;
+      }
+      return [u, v];
+    }
+
+    // Top crown hair parting check
+    if (options?.isCrown || (ny > 0.82 && y >= 1.70)) {
+      const v = 0.985;
+      const fracX = Math.max(0, Math.min(1, (x + 0.12) / 0.24));
+      const u = 0.060 + fracX * 0.130;
+      return [u, v];
+    }
+
+    // Standard vertical coordinate: Y spans 0.00 (feet) to 1.70 (crown)
+    const v = Math.max(0.02, Math.min(0.97, 0.035 + (Math.max(0, Math.min(1.70, y)) / 1.70) * 0.925));
+
+    // 2. Horizontal coordinate u via view normal alignment & spatial position
+    const lenXZ = Math.hypot(nx, nz);
+    const effNx = lenXZ > 0.01 ? nx / lenXZ : 0;
+    const effNz = lenXZ > 0.01 ? nz / lenXZ : (z >= 0 ? 1 : -1);
+
+    const theta = Math.atan2(effNx, effNz);
 
     let u: number;
-    if (loopFracOrNz !== undefined && loopFracOrNz >= 0 && loopFracOrNz <= 1.05) {
-      // Direct continuous unwrap around circumference
-      u = (loopFracOrNz + 0.125) % 1.0;
-      if (u < 0) u += 1.0;
+    if (Math.abs(theta) <= Math.PI / 4) {
+      // Front View (Col 0: 0.00..0.25)
+      const xNorm = Math.max(0.01, Math.min(0.99, (x + 0.25) / 0.50));
+      u = 0.00 + xNorm * 0.25;
+    } else if (theta < -Math.PI / 4 && theta > -0.75 * Math.PI) {
+      // Right Side View (Col 1: 0.25..0.50)
+      const zNorm = Math.max(0.01, Math.min(0.99, (-z + 0.165) / 0.33));
+      u = 0.25 + zNorm * 0.25;
+    } else if (Math.abs(theta) >= 0.75 * Math.PI) {
+      // Back View (Col 2: 0.50..0.75)
+      const xNorm = Math.max(0.01, Math.min(0.99, (-x + 0.25) / 0.50));
+      u = 0.50 + xNorm * 0.25;
     } else {
-      const theta = Math.atan2(x, z); // [-PI, PI]
-      let frac = theta / (2 * Math.PI) + 0.125;
-      while (frac < 0) frac += 1.0;
-      while (frac >= 1.0) frac -= 1.0;
-      u = frac;
+      // Left Side View (Col 3: 0.75..1.00)
+      const zNorm = Math.max(0.01, Math.min(0.99, (z + 0.165) / 0.33));
+      u = 0.75 + zNorm * 0.25;
     }
 
     return [Math.max(0.005, Math.min(0.995, u)), v];
@@ -357,7 +398,7 @@ export class HighFidelityModelGenerator {
         const normZ = nzVal / len;
         n.push(normX, normY, normZ);
 
-        const [uvU, uvV] = this.computeAtlasUV(px, py, pz, lon / lonBands);
+        const [uvU, uvV] = this.computeAtlasUV(px, py, pz, normX, normY, normZ);
         u.push(uvU, uvV);
       }
     }
@@ -389,7 +430,7 @@ export class HighFidelityModelGenerator {
         const nz = nRadius * Math.cos(angle);
         v.push(nx, ny, nz);
         n.push(Math.sin(angle), 0, Math.cos(angle));
-        const [uvU, uvV] = this.computeAtlasUV(nx, ny, nz, s / neckSegs);
+        const [uvU, uvV] = this.computeAtlasUV(nx, ny, nz, Math.sin(angle), 0, Math.cos(angle));
         u.push(uvU, uvV);
       }
     }
@@ -433,7 +474,7 @@ export class HighFidelityModelGenerator {
           const normZ = Math.sin(ang);
           n.push(normX, 0, normZ);
 
-          const [uvU, uvV] = this.computeAtlasUV(px, ay, pz, s / armSlices);
+          const [uvU, uvV] = this.computeAtlasUV(px, ay, pz, normX, 0, normZ);
           u.push(uvU, uvV);
         }
       }
@@ -510,7 +551,7 @@ export class HighFidelityModelGenerator {
         const normZ = pz / len;
         n.push(normX, 0.15, normZ);
 
-        const [uvU, uvV] = this.computeAtlasUV(px, y, pz, s / hairSlices);
+        const [uvU, uvV] = this.computeAtlasUV(px, y, pz, normX, 0.15, normZ, { isCrown: r === 0 });
         u.push(uvU, uvV);
       }
     }
@@ -584,7 +625,7 @@ export class HighFidelityModelGenerator {
         const normZ = (pz / rz) / len;
         n.push(normX, 0.04, normZ);
 
-        const [uvU, uvV] = this.computeAtlasUV(px, y, pz, s / radSteps);
+        const [uvU, uvV] = this.computeAtlasUV(px, y, pz, normX, 0.04, normZ);
         u.push(uvU, uvV);
       }
     }
@@ -620,7 +661,7 @@ export class HighFidelityModelGenerator {
           const normZ = Math.sin(ang);
           n.push(normX, -0.15, normZ);
 
-          const [uvU, uvV] = this.computeAtlasUV(px, sy, pz, a / sleeveRad);
+          const [uvU, uvV] = this.computeAtlasUV(px, sy, pz, normX, -0.15, normZ);
           u.push(uvU, uvV);
         }
       }
@@ -680,7 +721,7 @@ export class HighFidelityModelGenerator {
         const normZ = (pz / rz) / len;
         n.push(normX, 0, normZ);
 
-        const [uvU, uvV] = this.computeAtlasUV(px, y, pz, s / pelvisRad);
+        const [uvU, uvV] = this.computeAtlasUV(px, y, pz, normX, 0, normZ);
         u.push(uvU, uvV);
       }
     }
@@ -722,7 +763,7 @@ export class HighFidelityModelGenerator {
           const normZ = Math.cos(ang);
           n.push(normX, 0, normZ);
 
-          const [uvU, uvV] = this.computeAtlasUV(px, y, pz, a / legRad);
+          const [uvU, uvV] = this.computeAtlasUV(px, y, pz, normX, 0, normZ);
           u.push(uvU, uvV);
         }
       }
@@ -782,9 +823,10 @@ export class HighFidelityModelGenerator {
           v.push(px, y, pz);
           const normX = Math.sin(ang);
           const normZ = Math.cos(ang);
-          n.push(normX, y < 0.02 ? -1 : 0.15, normZ);
+          const normY = y < 0.02 ? -1 : 0.15;
+          n.push(normX, normY, normZ);
 
-          const [uvU, uvV] = this.computeAtlasUV(px, y, pz, a / shoeRad);
+          const [uvU, uvV] = this.computeAtlasUV(px, y, pz, normX, normY, normZ, { isSole: y < 0.02 });
           u.push(uvU, uvV);
         }
       }
